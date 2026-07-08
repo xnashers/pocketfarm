@@ -12,7 +12,9 @@
       "farm": "Farm",
       "shop": "Shop",
       "market": "Market",
-      "inventory": "Inventory"
+      "research": "Research",
+      "inventory": "Inventory",
+      "progress": "Progress"
     },
     "stats": {
       "peso": "Peso",
@@ -35,6 +37,14 @@
       "title": "Market",
       "empty": "No crops to sell yet"
     },
+    "research": {
+      "title": "Research",
+      "lab": "Research Lab",
+      "mutations": "Mutation Lab",
+      "weather": "Weather Center",
+      "genetics": "Seed Genetics",
+      "mastery": "Crop Mastery"
+    },
     "inventory": {
       "title": "Inventory",
       "empty": "Your inventory is empty"
@@ -46,7 +56,8 @@
       "level_up": "⭐ Level {level} – {title}!",
       "double": "Double harvest! 🎉",
       "farm_named": "Welcome to {name}! 🌱",
-      "plot_bought": "🔓 New plot unlocked!"
+      "plot_bought": "🔓 New plot unlocked!",
+      "harvested_crop": "Harvested {crop}!"
     }
   }
 }

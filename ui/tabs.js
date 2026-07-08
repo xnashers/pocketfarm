@@ -4,12 +4,14 @@ const TABS = [
   { id: 'farm', icon: '🌾', labelKey: 'app.tabs.farm' },
   { id: 'shop', icon: '🏪', labelKey: 'app.tabs.shop' },
   { id: 'market', icon: '💰', labelKey: 'app.tabs.market' },
+  { id: 'research', icon: '🔬', labelKey: 'app.tabs.research' },
   { id: 'inventory', icon: '🎒', labelKey: 'app.tabs.inventory' },
+  { id: 'objectives', icon: '📋', labelKey: 'app.tabs.progress' },
 ];
 
 export function createTabs(onChange) {
   const nav = document.createElement('nav');
-  nav.className = 'fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur border-t border-white/10 flex justify-around py-2 px-4 z-40 safe-bottom';
+  nav.className = 'fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur border-t border-white/10 flex justify-around py-2 px-1 z-40 safe-bottom';
   nav.setAttribute('role', 'tablist');
 
   let active = 'farm';
@@ -19,8 +21,8 @@ export function createTabs(onChange) {
     btn.type = 'button';
     btn.setAttribute('role', 'tab');
     btn.setAttribute('aria-selected', tab.id === active ? 'true' : 'false');
-    btn.className = 'flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg transition text-xs min-w-[56px]';
-    btn.innerHTML = `<span class="text-lg leading-none">${tab.icon}</span><span class="leading-tight">${t(tab.labelKey)}</span>`;
+    btn.className = 'flex flex-col items-center gap-0.5 px-1.5 py-1 rounded-lg transition text-[10px] min-w-[40px]';
+    btn.innerHTML = `<span class="text-lg leading-none">${tab.icon}</span><span class="leading-tight whitespace-nowrap">${t(tab.labelKey)}</span>`;
 
     btn.addEventListener('click', () => {
       active = tab.id;

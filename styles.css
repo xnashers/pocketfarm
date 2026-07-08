@@ -44,8 +44,31 @@ body {
   animation: mutationPulse 2s ease-in-out infinite;
 }
 
+@keyframes harvestPop {
+  0% { transform: scale(1); }
+  15% { transform: scale(0.88); }
+  35% { transform: scale(1.12); }
+  55% { transform: scale(0.96); }
+  75% { transform: scale(1.04); }
+  90% { transform: scale(0.99); }
+  100% { transform: scale(1); }
+}
+
+.harvest-pop {
+  animation: harvestPop 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom, 8px);
+}
+
+@keyframes musicPulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(74, 222, 128, 0.3); }
+  50% { box-shadow: 0 0 16px rgba(74, 222, 128, 0.6); }
+}
+
+.music-pulse {
+  animation: musicPulse 2s ease-in-out infinite;
 }
 
 ::-webkit-scrollbar {

@@ -1,5 +1,4 @@
 import { gameState } from '../state.js';
-import { WEATHER_CHANGE_INTERVAL } from '../data/weather.js';
 
 export function createWeatherDisplay() {
   const container = document.createElement('div');
@@ -23,15 +22,26 @@ export function createWeatherDisplay() {
 
     const remaining = gameState.getWeatherTimeRemaining();
 
+    // Check for forecast from Weather Center
+    let forecastHTML = '';
+    if (gameState.forecastResult && Date.now() < gameState.forecastResult.expiresAt) {
+      forecastHTML = `<span class="text-blue-400 text-[10px]">📡 Next: ${gameState.forecastResult.emoji}</span>`;
+    }
+
+    const isRareActive = gameState.isRareBoostActive();
+
     container.innerHTML = `
       <div class="flex items-center gap-2 flex-1 min-w-0">
         <span class="text-2xl flex-shrink-0">${weather.emoji}</span>
         <div class="min-w-0">
           <div class="font-semibold text-white text-sm">${weather.name}</div>
-          <div class="text-xs text-purple-400">${weather.mutationEmoji} ${weather.mutation} · x${weather.multiplier}</div>
+          <div class="text-xs text-purple-400">${weather.mutationEmoji} ${weather.mutation} · x${weather.multiplier} ${forecastHTML}</div>
         </div>
       </div>
-      <div class="text-xs text-slate-500 tabular-nums flex-shrink-0">⏱ ${formatCountdown(remaining)}</div>
+      <div class="text-right flex-shrink-0">
+        <div class="text-xs text-slate-500 tabular-nums">⏱ ${formatCountdown(remaining)}</div>
+        ${isRareActive ? '<div class="text-[10px] text-amber-400">🌟 Rare Boost</div>' : ''}
+      </div>
     `;
   }
 

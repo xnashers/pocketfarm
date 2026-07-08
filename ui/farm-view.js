@@ -3,16 +3,25 @@ import { SPRINKLERS } from '../data/gear.js';
 import { createWeatherDisplay } from './weather-display.js';
 import { showToast } from './toast.js';
 import { playSound } from './sounds.js';
+import { spawnHarvestAnimation } from './harvest-anim.js';
 
 const t = (key, values) => window.miniappI18n?.t(key, values) ?? key;
 
 let timerInterval = null;
+let weatherInterval = null;
 
 function formatGrowTime(seconds) {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
   if (mins > 0) return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
   return `${secs}s`;
+}
+
+function formatMs(ms) {
+  const totalSecs = Math.ceil(ms / 1000);
+  const mins = Math.floor(totalSecs / 60);
+  const secs = totalSecs % 60;
+  return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
 }
 
 function createSeedPopup() {
@@ -94,24 +103,33 @@ function createSprinklerBar() {
   bar.className = 'flex items-center gap-2 px-3 py-2 mb-3 rounded-xl border bg-slate-800/40 border-white/5';
 
   function render() {
-    const level = gameState.gear.sprinklerLevel;
-    if (level === 0) {
+    const active = gameState.getActiveSprinkler();
+
+    if (!active) {
+      const invCount = gameState.gear.sprinklerInventory.length;
+      const invText = invCount > 0
+        ? ` · 💦 <strong class="text-blue-400">${invCount} in inventory</strong> — tap Inventory to use`
+        : ' · Buy one in <strong class="text-blue-400">Gear</strong> shop';
       bar.innerHTML = `
         <span class="text-base opacity-50">💧</span>
-        <span class="text-xs text-slate-500">No sprinkler — buy one in <strong class="text-blue-400">Gear</strong> shop to speed up crops!</span>
+        <span class="text-xs text-slate-500">No active sprinkler${invText}</span>
       `;
     } else {
-      const sp = SPRINKLERS.find(s => s.tier === level);
+      const sp = SPRINKLERS.find(s => s.tier === active.tier);
       if (!sp) return;
       const bonusPct = Math.round(sp.speedBonus * 100);
-      const doubleStr = sp.doubleHarvestBonus ? ` · +${Math.round(sp.doubleHarvestBonus * 100)}% double harvest` : '';
+      const doubleStr = sp.doubleHarvestBonus ? ` · +${Math.round(sp.doubleHarvestBonus * 100)}% double` : '';
+      const remaining = gameState.getActiveSprinklerTimeRemaining();
       bar.innerHTML = `
         <span class="text-base flex-shrink-0">${sp.emoji}</span>
         <div class="flex-1 min-w-0">
           <span class="text-xs font-semibold text-blue-300">${sp.name}</span>
           <span class="text-xs text-slate-400"> · +${bonusPct}% speed${doubleStr}</span>
         </div>
-        <span class="text-xs text-green-400 font-bold">Active</span>
+        <div class="text-right flex-shrink-0">
+          <div class="text-xs text-green-400 font-bold">Active</div>
+          <div class="text-[10px] text-slate-400 sprinkler-countdown">${formatMs(remaining)}</div>
+        </div>
       `;
     }
   }
@@ -146,17 +164,6 @@ export function createFarmView() {
 
   const seedPopup = createSeedPopup();
   container.appendChild(seedPopup.element);
-
-  function formatTime(ms) {
-    const totalSecs = Math.ceil(ms / 1000);
-    if (totalSecs <= 0) return '0s';
-    const hours = Math.floor(totalSecs / 3600);
-    const mins = Math.floor((totalSecs % 3600) / 60);
-    const secs = totalSecs % 60;
-    if (hours > 0) return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
-    if (mins > 0) return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
-    return `${secs}s`;
-  }
 
   function renderPlot(plot, index) {
     const card = document.createElement('div');
@@ -203,35 +210,16 @@ export function createFarmView() {
       const remaining = gameState.getRemainingMs(plot);
       const isReady = plot.status === 'ready' || progress >= 1;
       const mutations = plot.mutations || [];
-      const mutationMult = gameState.getMutationMultiplier(mutations);
-      const harvestCount = plot.harvestCount || 0;
-
-      // Harvest count badge (persistent crops)
-      let countBadge = '';
-      if (harvestCount > 0) {
-        countBadge = `<div class="absolute top-1.5 right-1.5 bg-green-600/90 text-white text-xs font-bold px-1.5 py-0.5 rounded-full shadow-lg z-10">×${harvestCount}</div>`;
-      }
 
       if (isReady) {
         const glowClass = mutations.length > 0 ? 'mutation-glow' : 'ready-glow';
-        let mutationBadges = '';
-        if (mutations.length > 0) {
-          mutationBadges = `<div class="flex flex-wrap justify-center gap-0.5 mt-1">
-            ${mutations.map(m => `<span class="text-xs px-1 py-0.5 rounded bg-purple-900/50 border border-purple-500/30" title="${m.name}">${m.emoji}</span>`).join('')}
-          </div>`;
-          mutationBadges += `<div class="text-xs text-purple-300 font-bold mt-0.5">x${mutationMult.toFixed(1)}</div>`;
-        }
-
         card.className += ` border-green-400/60 bg-green-900/30 cursor-pointer hover:bg-green-900/50 ${glowClass}`;
         card.innerHTML = `
-          ${countBadge}
           <div class="flex flex-col items-center justify-center py-5 px-3 gap-1">
             <span class="text-3xl">${crop.emoji}</span>
             <span class="text-xs font-bold text-green-300 animate-pulse">${t('app.farm.ready')}</span>
-            ${mutationBadges}
             <div class="flex gap-1 mt-2">
               <button class="px-3 py-1.5 bg-green-500 hover:bg-green-400 text-slate-900 rounded-xl text-xs font-bold transition harvest-btn active:scale-95">✨ ${t('app.farm.harvest')}</button>
-              ${gameState.gear.hasShovel ? '<button class="px-2 py-1.5 bg-red-600/80 hover:bg-red-500 text-white rounded-xl text-xs transition shovel-btn active:scale-95" title="Shovel">🔨</button>' : ''}
             </div>
           </div>
         `;
@@ -240,19 +228,9 @@ export function createFarmView() {
           handleHarvest(index);
         });
         card.addEventListener('click', () => handleHarvest(index));
-        if (gameState.gear.hasShovel) {
-          card.querySelector('.shovel-btn').addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (gameState.shovelCrop(index)) {
-              playSound('click');
-              showToast('🔨 Crop removed!', 'info');
-            }
-          });
-        }
       } else {
         const canFertilize = !plot.fertilized && gameState.gear.fertilizerCount > 0;
-        card.className += ' border-amber-500/30 bg-amber-900/10';
-        const pct = Math.round(progress * 100);
+        card.className += ' border-slate-600/40 bg-slate-800/30';
 
         let actionBtns = '';
         if (canFertilize) {
@@ -260,19 +238,17 @@ export function createFarmView() {
         } else if (plot.fertilized) {
           actionBtns += '<span class="mt-1 text-xs text-amber-400/60">💩 Fertilized</span>';
         }
-        if (gameState.gear.hasShovel) {
-          actionBtns += '<button class="mt-1 px-2 py-1.5 bg-red-600/80 hover:bg-red-500 text-white rounded-xl text-xs transition shovel-btn active:scale-95">🔨</button>';
-        }
 
+        const pct = Math.round(progress * 100);
         card.innerHTML = `
-          ${countBadge}
-          <div class="flex flex-col items-center py-4 px-3 gap-1">
+          <div class="flex flex-col items-center py-4 px-3 gap-1.5">
             <span class="text-2xl">${crop.emoji}</span>
-            <span class="text-xs text-amber-300">${t('app.farm.growing')}</span>
-            <div class="w-full h-2 bg-slate-700 rounded-full overflow-hidden">
-              <div class="h-full bg-gradient-to-r from-amber-500 to-green-500 rounded-full transition-all progress-bar" style="width: ${pct}%"></div>
+            <span class="text-xs text-slate-400">${t('app.farm.growing')}</span>
+            <div class="w-full mt-1">
+              <div class="w-full h-2 bg-slate-700/60 rounded-full overflow-hidden">
+                <div class="h-full bg-gradient-to-r from-green-500 to-green-400 rounded-full progress-bar" style="width: ${pct}%"></div>
+              </div>
             </div>
-            <span class="text-xs text-slate-400 time-remaining">${formatTime(remaining)}</span>
             ${plot.fertilized ? '<span class="text-xs text-amber-400">💩 +weight</span>' : ''}
             <div class="flex gap-1">${actionBtns}</div>
           </div>
@@ -287,15 +263,6 @@ export function createFarmView() {
             }
           });
         }
-        if (gameState.gear.hasShovel) {
-          card.querySelector('.shovel-btn').addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (gameState.shovelCrop(index)) {
-              playSound('click');
-              showToast('🔨 Crop removed!', 'info');
-            }
-          });
-        }
       }
     }
 
@@ -304,7 +271,8 @@ export function createFarmView() {
 
   function renderBuyPlotTile() {
     const card = document.createElement('div');
-    const canAfford = gameState.player.peso >= 20;
+    const plotPrice = gameState.getPlotPrice();
+    const canAfford = gameState.player.peso >= plotPrice;
     card.className = `relative rounded-2xl border-2 border-dashed overflow-hidden transition-all duration-200 ${
       canAfford ? 'border-amber-500/50 bg-amber-900/20 hover:border-amber-400 hover:bg-amber-900/30 cursor-pointer active:scale-95' : 'border-slate-700 bg-slate-800/30 opacity-50'
     }`;
@@ -312,7 +280,7 @@ export function createFarmView() {
       <div class="flex flex-col items-center justify-center py-8 px-4 gap-1">
         <span class="text-2xl">🔓</span>
         <span class="text-xs font-semibold text-amber-300">${t('app.farm.buy_plot')}</span>
-        <span class="text-xs text-yellow-400">₱20</span>
+        <span class="text-xs text-yellow-400">₱${plotPrice.toLocaleString()}</span>
       </div>
     `;
     if (canAfford) {
@@ -330,12 +298,24 @@ export function createFarmView() {
     const result = gameState.harvestCrop(index);
     if (result) {
       playSound('harvest');
-      const mult = result.items[0].mutations.length > 0 ? gameState.getMutationMultiplier(result.items[0].mutations) : 0;
-      const multStr = mult > 0 ? ` (x${mult.toFixed(1)})` : '';
+      setTimeout(() => playSound('peso'), 300);
+      const plotEl = grid.querySelector(`[data-plot-index="${index}"]`);
+      if (plotEl) {
+        plotEl.classList.add('harvest-pop');
+        plotEl.addEventListener('animationend', () => plotEl.classList.remove('harvest-pop'), { once: true });
+        spawnHarvestAnimation(plotEl, result.crop, result);
+      }
+
       const msg = result.isDouble
-        ? `${t('app.toast.double')} +${result.quantity} ${result.crop.emoji}${multStr}`
-        : `${t('app.toast.harvested', { crop: result.crop.emoji, xp: result.crop.xp * result.quantity })}${multStr}`;
+        ? `${t('app.toast.double')} +${result.quantity} ${result.crop.emoji}`
+        : `${t('app.toast.harvested', { crop: result.crop.emoji, xp: result.crop.xp * result.quantity })}`;
       showToast(msg, result.isDouble ? 'gold' : 'success');
+
+      // Check achievements after harvest
+      const newAchs = gameState.checkAchievements();
+      for (const ach of newAchs) {
+        setTimeout(() => showToast(`🏆 ${ach.name} unlocked!`, 'gold'), 800);
+      }
     }
   }
 
@@ -352,7 +332,17 @@ export function createFarmView() {
 
   function updateTimers() {
     let needsFullRender = false;
-    gameState.checkAndApplyWeather();
+
+    // Update sprinkler countdown
+    const sprinklerCountdownEl = container.querySelector('.sprinkler-countdown');
+    if (sprinklerCountdownEl) {
+      const remaining = gameState.getActiveSprinklerTimeRemaining();
+      if (remaining <= 0) {
+        needsFullRender = true;
+      } else {
+        sprinklerCountdownEl.textContent = formatMs(remaining);
+      }
+    }
 
     const cards = grid.querySelectorAll('[data-plot-index]');
     cards.forEach(card => {
@@ -360,24 +350,33 @@ export function createFarmView() {
       const plot = gameState.plots[index];
       if (!plot || plot.status !== 'growing') return;
       const remaining = gameState.getRemainingMs(plot);
-      if (remaining <= 0) { needsFullRender = true; return; }
+      if (remaining <= 0) {
+        // Immediately flip growing → ready in game state
+        plot.status = 'ready';
+        needsFullRender = true;
+        return;
+      }
       const progress = gameState.getProgress(plot);
-      const pct = Math.round(progress * 100);
       const bar = card.querySelector('.progress-bar');
-      const timeEl = card.querySelector('.time-remaining');
-      if (bar) bar.style.width = `${pct}%`;
-      if (timeEl) timeEl.textContent = formatTime(remaining);
+      if (bar) bar.style.width = `${Math.round(progress * 100)}%`;
     });
     if (needsFullRender) render();
+  }
+
+  function weatherTick() {
+    gameState.checkAndApplyWeather();
   }
 
   function startTimer() {
     if (timerInterval) clearInterval(timerInterval);
     timerInterval = setInterval(updateTimers, 1000);
+    if (weatherInterval) clearInterval(weatherInterval);
+    weatherInterval = setInterval(weatherTick, 3000);
   }
 
   function stopTimer() {
     if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+    if (weatherInterval) { clearInterval(weatherInterval); weatherInterval = null; }
   }
 
   function activate() { render(); startTimer(); weatherDisplay.startTimer?.(); }

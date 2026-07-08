@@ -54,6 +54,9 @@ export function createShopView() {
     return `${secs}s`;
   }
 
+  const STOCK_MAX = { starter: 5, intermediate: 3, advanced: 1, premium: 1 };
+  const RARE_CATS = new Set(['advanced', 'premium']);
+
   function renderSeeds() {
     content.innerHTML = '';
 
@@ -68,27 +71,32 @@ export function createShopView() {
 
     for (const cat of CROP_CATEGORIES) {
       const catCrops = CROPS.filter(c => c.category === cat.id);
-      const availableCount = catCrops.filter(c => gameState.isCropAvailable(c.id)).length;
+      const maxStock = STOCK_MAX[cat.id] || 3;
+
+      const isRare = RARE_CATS.has(cat.id);
+      const label = isRare ? '🎲 30% chance' : `x${maxStock}/cycle`;
 
       const section = document.createElement('div');
       section.className = 'mb-5';
 
       const header = document.createElement('h3');
       header.className = 'text-sm font-bold text-slate-300 mb-2';
-      header.textContent = `${cat.name} (${availableCount}/${catCrops.length} in stock)`;
+      header.textContent = `${cat.name} (${label})`;
       section.appendChild(header);
 
       const grid = document.createElement('div');
       grid.className = 'space-y-2';
 
       for (const crop of catCrops) {
-        const available = gameState.isCropAvailable(crop.id);
+        const stock = gameState.getSeedStock(crop.id);
         const ownedSeeds = gameState.seeds[crop.id] || 0;
+        const canAfford = gameState.player.peso >= crop.seedCost;
         const minSell = crop.seedCost * 5;
+        const unavailable = stock <= 0;
 
         const card = document.createElement('div');
         card.className = `flex items-center gap-3 p-3 rounded-xl border transition ${
-          available ? 'bg-slate-800/60 border-white/5 hover:border-white/10' : 'bg-slate-900/40 border-white/5 opacity-40'
+          unavailable ? 'bg-slate-900/40 border-white/5 opacity-40' : 'bg-slate-800/60 border-white/5 hover:border-white/10'
         }`;
 
         card.innerHTML = `
@@ -99,42 +107,40 @@ export function createShopView() {
               ⏱ ${formatGrowTime(crop.growTime)} · Min ₱${minSell}
               ${ownedSeeds > 0 ? ` · <span class="text-green-400">🌱${ownedSeeds}</span>` : ''}
             </div>
-            ${!available ? '<div class="text-xs text-slate-500 mt-0.5">⏳ Out of stock — rotates soon</div>' : ''}
+            <div class="text-xs mt-0.5 ${unavailable ? 'text-slate-600' : 'text-amber-400'}">${unavailable ? (isRare ? '🚫 Not available this cycle' : '⏳ Sold out — restocks soon') : `📦 ${stock} in stock`}</div>
           </div>
-          ${available ? `
-            <div class="flex gap-1 flex-shrink-0">
-              <button class="buy-1 px-2.5 py-1.5 bg-green-600/80 hover:bg-green-500 text-white rounded-lg text-xs font-semibold transition active:scale-95" data-crop="${crop.id}">₱${crop.seedCost}</button>
-              <button class="buy-5 px-2.5 py-1.5 bg-green-700/80 hover:bg-green-600 text-white rounded-lg text-xs font-semibold transition active:scale-95" data-crop="${crop.id}">x5</button>
-            </div>
-          ` : ''}
+          <div class="flex gap-1 flex-shrink-0">
+            ${!unavailable && stock >= 1 ? `<button class="buy-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition active:scale-95 ${canAfford ? 'bg-green-600/80 hover:bg-green-500 text-white' : 'bg-slate-700/60 text-slate-500 cursor-not-allowed opacity-50'}" data-crop="${crop.id}" ${!canAfford ? 'disabled' : ''}>₱${crop.seedCost}</button>` : ''}
+            ${!unavailable && stock >= 3 ? `<button class="buy-3 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition active:scale-95 ${canAfford ? 'bg-green-700/80 hover:bg-green-600 text-white' : 'bg-slate-700/60 text-slate-500 cursor-not-allowed opacity-50'}" data-crop="${crop.id}" ${!canAfford ? 'disabled' : ''}>x3</button>` : ''}
+            ${!unavailable && stock >= 5 ? `<button class="buy-5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition active:scale-95 ${canAfford ? 'bg-green-800/80 hover:bg-green-700 text-white' : 'bg-slate-700/60 text-slate-500 cursor-not-allowed opacity-50'}" data-crop="${crop.id}" ${!canAfford ? 'disabled' : ''}>x5</button>` : ''}
+            ${unavailable ? `<span class="text-xs text-slate-600">${isRare ? '🎲' : 'Empty'}</span>` : ''}
+          </div>
         `;
 
-        if (available) {
-          card.querySelector('.buy-1').addEventListener('click', () => {
-            if (gameState.buySeed(crop.id, 1)) {
-              playSound('buy');
-              showToast(`🌱 Bought 1 ${crop.name} seed!`, 'success');
-            } else {
-              playSound('error');
-              showToast('Not enough Peso!', 'error');
-            }
-          });
-          card.querySelector('.buy-5').addEventListener('click', () => {
-            if (gameState.buySeed(crop.id, 5)) {
-              playSound('buy');
-              showToast(`🌱 Bought 5 ${crop.name} seeds!`, 'success');
-            } else {
-              playSound('error');
-              showToast('Not enough Peso!', 'error');
-            }
-          });
-        }
+        const buy1 = card.querySelector('.buy-1');
+        const buy3 = card.querySelector('.buy-3');
+        const buy5 = card.querySelector('.buy-5');
+
+        if (buy1 && !buy1.disabled) buy1.addEventListener('click', () => buySeeds(crop, 1));
+        if (buy3 && !buy3.disabled) buy3.addEventListener('click', () => buySeeds(crop, 3));
+        if (buy5 && !buy5.disabled) buy5.addEventListener('click', () => buySeeds(crop, 5));
 
         grid.appendChild(card);
       }
 
       section.appendChild(grid);
       content.appendChild(section);
+    }
+  }
+
+  function buySeeds(crop, qty) {
+    const result = gameState.buySeed(crop.id, qty);
+    if (result && result > 0) {
+      playSound('buy');
+      showToast(`🌱 Bought ${result} ${crop.name} seed${result > 1 ? 's' : ''}!`, 'success');
+    } else {
+      playSound('error');
+      showToast('Not enough Peso!', 'error');
     }
   }
 
@@ -146,7 +152,7 @@ export function createShopView() {
     const spTimerBar = document.createElement('div');
     spTimerBar.className = 'flex items-center justify-between mb-4 px-3 py-2 rounded-xl bg-slate-800/60 border border-white/5';
     spTimerBar.innerHTML = `
-      <span class="text-xs text-slate-400">🔄 Sprinkler stock refreshes in</span>
+      <span class="text-xs text-slate-400">🔄 Gear stock refreshes in</span>
       <span class="text-xs font-bold text-blue-400 sprinkler-timer">${formatTime(spRemaining)}</span>
     `;
     content.appendChild(spTimerBar);
@@ -158,49 +164,53 @@ export function createShopView() {
     const spGrid = document.createElement('div');
     spGrid.className = 'space-y-2';
 
+    const SP_STOCK = { 1: 3, 2: 2, 3: 1 };
+
     for (const sp of SPRINKLERS) {
-      const currentLevel = gameState.gear.sprinklerLevel;
-      const owned = currentLevel >= sp.tier;
-      const isNext = currentLevel === sp.tier - 1;
-      const available = gameState.isSprinklerAvailable(sp.tier);
-      const canBuy = isNext && available && gameState.player.peso >= sp.cost;
-      const locked = currentLevel < sp.tier - 1;
+      const stock = gameState.getSprinklerStock(sp.tier);
+      const maxStock = SP_STOCK[sp.tier] || 1;
+      const canAfford = gameState.player.peso >= sp.cost;
+      const invCount = gameState.gear.sprinklerInventory.filter(s => s.tier === sp.tier).length;
+      const bonusPct = Math.round(sp.speedBonus * 100);
+      const doubleStr = sp.doubleHarvestBonus ? ` · +${Math.round(sp.doubleHarvestBonus * 100)}% double` : '';
+      const durMin = Math.floor(sp.duration / 60);
+      const durSec = sp.duration % 60;
+      const durStr = durMin > 0 ? `${durMin}m${durSec > 0 ? ` ${durSec}s` : ''}` : `${durSec}s`;
+      const unavailable = stock <= 0;
 
       const card = document.createElement('div');
       card.className = `flex items-center gap-3 p-3 rounded-xl border ${
-        owned ? 'bg-green-900/20 border-green-500/30' :
-        canBuy ? 'bg-slate-800/60 border-white/10' :
-        isNext && !available ? 'bg-slate-900/40 border-white/5 opacity-60' :
-        'bg-slate-900/40 border-white/5 opacity-50'
+        unavailable ? 'bg-slate-900/40 border-white/5 opacity-40' : 'bg-slate-800/60 border-white/10'
       }`;
 
       card.innerHTML = `
         <span class="text-2xl flex-shrink-0">${sp.emoji}</span>
         <div class="flex-1 min-w-0">
           <div class="font-semibold text-white text-sm">${sp.name}</div>
-          <div class="text-xs text-slate-400">${sp.description}</div>
-          ${isNext && !available ? '<div class="text-xs text-slate-500 mt-0.5">⏳ Out of stock — rotates soon</div>' : ''}
+          <div class="text-xs text-slate-400">+${bonusPct}% speed${doubleStr} · ${durStr}</div>
+          ${invCount > 0 ? `<div class="text-xs text-blue-400 mt-0.5">🎒 ${invCount} owned</div>` : ''}
+          <div class="text-xs mt-0.5 ${unavailable ? 'text-slate-600' : 'text-amber-400'}">${unavailable ? '⏳ Sold out — restocks soon' : `📦 ${stock}/${maxStock} in stock`}</div>
         </div>
         <div class="flex-shrink-0">
-          ${owned ? '<span class="text-xs text-green-400 font-semibold">✅ Owned</span>' :
-            locked ? `<span class="text-xs text-slate-500">🔒 Tier ${sp.tier - 1}</span>` :
-            !isNext ? '<span class="text-xs text-slate-500">🔒 Next tier</span>' :
-            !available ? '<span class="text-xs text-slate-500">⏳ Out of stock</span>' :
-            `<button class="buy-sp px-3 py-1.5 bg-blue-600/80 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition active:scale-95">₱${sp.cost}</button>`
+          ${!unavailable ? `<button class="buy-sp px-3 py-1.5 rounded-lg text-xs font-semibold transition active:scale-95 ${canAfford ? 'bg-blue-600/80 hover:bg-blue-500 text-white' : 'bg-slate-700/60 text-slate-500 cursor-not-allowed opacity-50'}" ${!canAfford ? 'disabled' : ''}>₱${sp.cost}</button>` :
+            '<span class="text-xs text-slate-600">Empty</span>'
           }
         </div>
       `;
 
-      if (canBuy) {
-        card.querySelector('.buy-sp').addEventListener('click', () => {
-          if (gameState.buySprinkler(sp.tier)) {
-            playSound('buy');
-            showToast(`💦 ${sp.name} installed!`, 'success');
-          } else {
-            playSound('error');
-            showToast('Not enough Peso!', 'error');
-          }
-        });
+      if (!unavailable) {
+        const spBtn = card.querySelector('.buy-sp');
+        if (spBtn && !spBtn.disabled) {
+          spBtn.addEventListener('click', () => {
+            if (gameState.buySprinkler(sp.tier)) {
+              playSound('buy');
+              showToast(`💦 ${sp.name} added to inventory!`, 'success');
+            } else {
+              playSound('error');
+              showToast('Not enough Peso!', 'error');
+            }
+          });
+        }
       }
 
       spGrid.appendChild(card);
@@ -209,43 +219,24 @@ export function createShopView() {
     spSection.appendChild(spGrid);
     content.appendChild(spSection);
 
-    // Tools
+    // Fertilizer
     const toolsSection = document.createElement('div');
-    toolsSection.innerHTML = '<h3 class="text-sm font-bold text-slate-300 mb-2">🔨 Tools</h3>';
+    const fertStock = gameState.getFertilizerStock();
+    const fertMax = 5;
+    const fertStockColor = fertStock > 2 ? 'text-green-400' : fertStock > 0 ? 'text-amber-400' : 'text-red-400';
+
+    toolsSection.innerHTML = `<h3 class="text-sm font-bold text-slate-300 mb-2">💩 Fertilizer <span class="text-xs ${fertStockColor} font-normal">(${fertStock}/${fertMax} in stock)</span></h3>`;
     const toolsGrid = document.createElement('div');
     toolsGrid.className = 'space-y-2';
 
-    // Shovel (free)
-    const shovel = GEAR_ITEMS.shovel;
-    const hasShovel = gameState.gear.hasShovel;
-    const shovelCard = document.createElement('div');
-    shovelCard.className = `flex items-center gap-3 p-3 rounded-xl border ${hasShovel ? 'bg-green-900/20 border-green-500/30' : 'bg-slate-800/60 border-white/5'}`;
-    shovelCard.innerHTML = `
-      <span class="text-2xl flex-shrink-0">${shovel.emoji}</span>
-      <div class="flex-1 min-w-0">
-        <div class="font-semibold text-white text-sm">${shovel.name}</div>
-        <div class="text-xs text-slate-400">${shovel.description}</div>
-      </div>
-      <div class="flex-shrink-0">
-        ${hasShovel ? '<span class="text-xs text-green-400 font-semibold">✅ Owned</span>' :
-          '<button class="buy-shovel px-3 py-1.5 bg-green-600/80 hover:bg-green-500 text-white rounded-lg text-xs font-semibold transition active:scale-95">FREE</button>'
-        }
-      </div>
-    `;
-    if (!hasShovel) {
-      shovelCard.querySelector('.buy-shovel').addEventListener('click', () => {
-        if (gameState.buyShovel()) {
-          playSound('buy');
-          showToast('🔨 Shovel claimed!', 'success');
-        }
-      });
-    }
-    toolsGrid.appendChild(shovelCard);
-
-    // Fertilizer
     const fert = GEAR_ITEMS.fertilizer;
+    const canAffordFert = gameState.player.peso >= fert.cost;
+    const fertUnavailable = fertStock <= 0;
+
     const fertCard = document.createElement('div');
-    fertCard.className = 'flex items-center gap-3 p-3 rounded-xl border bg-slate-800/60 border-white/5';
+    fertCard.className = `flex items-center gap-3 p-3 rounded-xl border ${
+      fertUnavailable ? 'bg-slate-900/40 border-white/5 opacity-40' : 'bg-slate-800/60 border-white/5'
+    }`;
     fertCard.innerHTML = `
       <span class="text-2xl flex-shrink-0">${fert.emoji}</span>
       <div class="flex-1 min-w-0">
@@ -254,32 +245,31 @@ export function createShopView() {
         <div class="text-xs text-amber-400 mt-0.5">Owned: ${gameState.gear.fertilizerCount}</div>
       </div>
       <div class="flex flex-col gap-1 flex-shrink-0">
-        <button class="buy-fert-1 px-2.5 py-1.5 bg-amber-600/80 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold transition active:scale-95">x1 ₱${fert.cost}</button>
-        <button class="buy-fert-5 px-2.5 py-1.5 bg-amber-700/80 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold transition active:scale-95">x5 ₱${fert.cost * 5}</button>
+        ${!fertUnavailable && fertStock >= 1 ? `<button class="buy-fert-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition active:scale-95 ${canAffordFert ? 'bg-amber-600/80 hover:bg-amber-500 text-white' : 'bg-slate-700/60 text-slate-500 cursor-not-allowed opacity-50'}" ${!canAffordFert ? 'disabled' : ''}>x1 ₱${fert.cost}</button>` : ''}
+        ${!fertUnavailable && fertStock >= 3 ? `<button class="buy-fert-3 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition active:scale-95 ${canAffordFert ? 'bg-amber-700/80 hover:bg-amber-600 text-white' : 'bg-slate-700/60 text-slate-500 cursor-not-allowed opacity-50'}" ${!canAffordFert ? 'disabled' : ''}>x3 ₱${fert.cost * 3}</button>` : ''}
+        ${fertUnavailable ? '<span class="text-xs text-slate-600 text-center">Empty</span>' : ''}
       </div>
     `;
-    fertCard.querySelector('.buy-fert-1').addEventListener('click', () => {
-      if (gameState.buyFertilizer(1)) {
-        playSound('buy');
-        showToast('💩 Bought 1 Fertilizer!', 'success');
-      } else {
-        playSound('error');
-        showToast('Not enough Peso!', 'error');
-      }
-    });
-    fertCard.querySelector('.buy-fert-5').addEventListener('click', () => {
-      if (gameState.buyFertilizer(5)) {
-        playSound('buy');
-        showToast('💩 Bought 5 Fertilizer!', 'success');
-      } else {
-        playSound('error');
-        showToast('Not enough Peso!', 'error');
-      }
-    });
-    toolsGrid.appendChild(fertCard);
 
+    const buyFert1 = fertCard.querySelector('.buy-fert-1');
+    const buyFert3 = fertCard.querySelector('.buy-fert-3');
+    if (buyFert1 && !buyFert1.disabled) buyFert1.addEventListener('click', () => buyFert(1));
+    if (buyFert3 && !buyFert3.disabled) buyFert3.addEventListener('click', () => buyFert(3));
+
+    toolsGrid.appendChild(fertCard);
     toolsSection.appendChild(toolsGrid);
     content.appendChild(toolsSection);
+  }
+
+  function buyFert(qty) {
+    const result = gameState.buyFertilizer(qty);
+    if (result && result > 0) {
+      playSound('buy');
+      showToast(`💩 Bought ${result} Fertilizer!`, 'success');
+    } else {
+      playSound('error');
+      showToast('Not enough Peso!', 'error');
+    }
   }
 
   function renderSection() {

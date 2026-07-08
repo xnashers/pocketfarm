@@ -1,6 +1,6 @@
 export function createSplashScreen(onComplete) {
   const overlay = document.createElement('div');
-  overlay.className = 'fixed inset-0 z-[60] flex items-center justify-center select-none';
+  overlay.className = 'fixed inset-0 z-[60] flex flex-col items-center justify-center select-none gap-2';
   overlay.style.backgroundColor = '#DC2626';
 
   const text = document.createElement('h1');
@@ -14,13 +14,24 @@ export function createSplashScreen(onComplete) {
   text.style.transform = 'scale(0.9)';
   text.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
 
+  const subtitle = document.createElement('p');
+  subtitle.textContent = 'Developed with Passion by Jonas Sison';
+  subtitle.style.fontStyle = 'italic';
+  subtitle.style.fontSize = 'clamp(0.75rem, 3vw, 1rem)';
+  subtitle.style.color = '#000000';
+  subtitle.style.margin = '0';
+  subtitle.style.opacity = '0';
+  subtitle.style.transition = 'opacity 0.6s ease 0.2s';
+
   overlay.appendChild(text);
+  overlay.appendChild(subtitle);
   document.body.appendChild(overlay);
 
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       text.style.opacity = '1';
       text.style.transform = 'scale(1)';
+      subtitle.style.opacity = '1';
     });
   });
 

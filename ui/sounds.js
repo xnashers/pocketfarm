@@ -41,9 +41,11 @@ export function playSound(type) {
         tone(680, 0.15, 'sine', 0.08, 0.06);
         break;
       case 'harvest':
-        tone(523, 0.15, 'sine', 0.10);
-        tone(659, 0.15, 'sine', 0.10, 0.08);
-        tone(784, 0.25, 'sine', 0.08, 0.16);
+        tone(523, 0.12, 'sine', 0.10);
+        tone(659, 0.12, 'sine', 0.10, 0.06);
+        tone(784, 0.15, 'sine', 0.10, 0.12);
+        tone(1047, 0.25, 'sine', 0.08, 0.18);
+        tone(1319, 0.20, 'sine', 0.05, 0.25);
         break;
       case 'buy':
         tone(1200, 0.08, 'square', 0.05);
@@ -73,6 +75,11 @@ export function playSound(type) {
         tone(300, 0.30, 'sine', 0.05);
         tone(450, 0.30, 'sine', 0.04, 0.10);
         tone(600, 0.20, 'sine', 0.03, 0.20);
+        break;
+      case 'peso':
+        tone(880, 0.08, 'sine', 0.06);
+        tone(1100, 0.08, 'sine', 0.05, 0.05);
+        tone(1320, 0.15, 'sine', 0.07, 0.10);
         break;
     }
   } catch (_) { /* silent */ }

@@ -5,10 +5,14 @@ import { createFarmView } from './ui/farm-view.js';
 import { createShopView } from './ui/shop-view.js';
 import { createMarketView } from './ui/market-view.js';
 import { createInventoryView } from './ui/inventory-view.js';
+import { createResearchView } from './ui/research-view.js';
+import { createObjectivesView } from './ui/objectives-view.js';
 import { createWelcomeScreen } from './ui/welcome-screen.js';
 import { createSplashScreen } from './ui/splash-screen.js';
+import { showLoginRewardPopup } from './ui/login-reward-popup.js';
 import { initToast, showToast } from './ui/toast.js';
 import { playSound } from './ui/sounds.js';
+import { createMusicButton } from './ui/music.js';
 
 const t = (key, values) => window.miniappI18n?.t(key, values) ?? key;
 
@@ -36,15 +40,40 @@ async function init() {
 }
 
 function startGame(app) {
+  // Show login reward popup if pending
+  if (gameState.pendingLoginReward) {
+    setTimeout(() => showLoginRewardPopup(), 500);
+  }
+
+  // Check achievements on startup
+  const startupAchievements = gameState.checkAchievements();
+  if (startupAchievements.length > 0) {
+    setTimeout(() => {
+      for (const ach of startupAchievements) {
+        showToast(`🏆 Achievement: ${ach.name}!`, 'gold');
+      }
+    }, 1500);
+  }
+
   gameState.on('levelup', (level) => {
     playSound('levelup');
     const title = gameState.getLevelTitle();
     showToast(t('app.toast.level_up', { level, title }), 'gold');
+    // Check achievements after level up
+    const newAchs = gameState.checkAchievements();
+    for (const ach of newAchs) {
+      setTimeout(() => showToast(`🏆 ${ach.name} unlocked!`, 'gold'), 500);
+    }
   });
 
   gameState.on('weatherChange', (weather) => {
     playSound('weather');
     showToast(`${weather.emoji} ${weather.name} — ${weather.mutationEmoji} ${weather.mutation} (x${weather.multiplier})`, 'info');
+    // Check weather achievements
+    const newAchs = gameState.checkAchievements();
+    for (const ach of newAchs) {
+      setTimeout(() => showToast(`🏆 ${ach.name} unlocked!`, 'gold'), 500);
+    }
   });
 
   const { element: statsBar } = createStatsBar();
@@ -58,7 +87,9 @@ function startGame(app) {
     farm: createFarmView(),
     shop: createShopView(),
     market: createMarketView(),
+    research: createResearchView(),
     inventory: createInventoryView(),
+    objectives: createObjectivesView(),
   };
 
   let currentView = 'farm';
@@ -77,6 +108,9 @@ function startGame(app) {
 
   const tabs = createTabs(showView);
   app.appendChild(tabs);
+
+  // Music toggle button
+  app.appendChild(createMusicButton());
 }
 
 document.addEventListener('DOMContentLoaded', init);

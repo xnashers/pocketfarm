@@ -1,6 +1,16 @@
 import { gameState } from '../state.js';
+import { SPRINKLERS } from '../data/gear.js';
+import { showToast } from './toast.js';
+import { playSound } from './sounds.js';
 
 const t = (key) => window.miniappI18n?.t(key) ?? key;
+
+function formatMs(ms) {
+  const totalSecs = Math.ceil(ms / 1000);
+  const mins = Math.floor(totalSecs / 60);
+  const secs = totalSecs % 60;
+  return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+}
 
 export function createInventoryView() {
   const container = document.createElement('div');
@@ -15,13 +25,17 @@ export function createInventoryView() {
   list.className = 'space-y-3';
   container.appendChild(list);
 
+  let sprinklerTimerInterval = null;
+
   function render() {
     list.innerHTML = '';
 
     const seedEntries = Object.entries(gameState.seeds).filter(([, count]) => count > 0);
     const cropEntries = Object.entries(gameState.inventory).filter(([, items]) => items && items.length > 0);
+    const sprinklerEntries = gameState.gear.sprinklerInventory || [];
+    const activeSprinkler = gameState.getActiveSprinkler();
 
-    if (seedEntries.length === 0 && cropEntries.length === 0) {
+    if (seedEntries.length === 0 && cropEntries.length === 0 && sprinklerEntries.length === 0 && !activeSprinkler && gameState.gear.fertilizerCount <= 0) {
       list.innerHTML = `
         <div class="text-center py-12 text-slate-500">
           <span class="text-4xl block mb-3">🎒</span>
@@ -31,10 +45,92 @@ export function createInventoryView() {
       return;
     }
 
+    // === Active Sprinkler ===
+    if (activeSprinkler) {
+      const sp = SPRINKLERS.find(s => s.tier === activeSprinkler.tier);
+      if (sp) {
+        const section = document.createElement('div');
+        const header = document.createElement('h3');
+        header.className = 'text-sm font-bold text-slate-300 mb-2';
+        header.textContent = '💦 Active Sprinkler';
+        section.appendChild(header);
+
+        const card = document.createElement('div');
+        card.className = 'flex items-center gap-3 p-4 rounded-xl bg-blue-900/30 border border-blue-500/30';
+        const bonusPct = Math.round(sp.speedBonus * 100);
+        const doubleStr = sp.doubleHarvestBonus ? ` · +${Math.round(sp.doubleHarvestBonus * 100)}% double` : '';
+        card.innerHTML = `
+          <span class="text-3xl flex-shrink-0">${sp.emoji}</span>
+          <div class="flex-1">
+            <div class="font-semibold text-white">${sp.name}</div>
+            <div class="text-xs text-blue-300">+${bonusPct}% speed${doubleStr}</div>
+          </div>
+          <div class="text-right flex-shrink-0">
+            <div class="text-sm font-bold text-green-400 active-sprinkler-timer">${formatMs(gameState.getActiveSprinklerTimeRemaining())}</div>
+            <div class="text-[10px] text-slate-500">remaining</div>
+          </div>
+        `;
+        section.appendChild(card);
+        list.appendChild(section);
+
+        // Start countdown timer
+        startSprinklerTimer();
+      }
+    }
+
+    // === Sprinkler Inventory ===
+    if (sprinklerEntries.length > 0) {
+      const section = document.createElement('div');
+      const header = document.createElement('h3');
+      header.className = 'text-sm font-bold text-slate-300 mb-2 mt-4';
+      header.textContent = '💦 Sprinklers';
+      section.appendChild(header);
+
+      const grid = document.createElement('div');
+      grid.className = 'space-y-2';
+
+      sprinklerEntries.forEach((item, index) => {
+        const sp = SPRINKLERS.find(s => s.tier === item.tier);
+        if (!sp) return;
+        const bonusPct = Math.round(sp.speedBonus * 100);
+        const isActive = !!activeSprinkler;
+
+        const card = document.createElement('div');
+        card.className = 'flex items-center gap-3 p-3 rounded-xl bg-blue-900/20 border border-blue-500/20';
+        card.innerHTML = `
+          <span class="text-2xl flex-shrink-0">${sp.emoji}</span>
+          <div class="flex-1 min-w-0">
+            <div class="font-semibold text-white text-sm">${sp.name}</div>
+            <div class="text-xs text-slate-400">+${bonusPct}% speed · ${formatMs(sp.duration)}</div>
+          </div>
+          <button class="use-sprinkler-btn px-3 py-1.5 rounded-xl text-xs font-bold transition active:scale-95 ${
+            isActive
+              ? 'bg-slate-700 text-slate-500 cursor-not-allowed'
+              : 'bg-blue-600 hover:bg-blue-500 text-white'
+          }" ${isActive ? 'disabled' : ''}>${isActive ? '⏳ Wait' : '▶ Use'}</button>
+        `;
+
+        if (!isActive) {
+          card.querySelector('.use-sprinkler-btn').addEventListener('click', () => {
+            if (gameState.useSprinkler(index)) {
+              playSound('buy');
+              showToast(`${sp.emoji} ${sp.name} activated! ${formatMs(sp.duration)}`, 'success');
+            }
+          });
+        }
+
+        grid.appendChild(card);
+      });
+
+      section.appendChild(grid);
+      list.appendChild(section);
+    }
+
+    // === Seeds ===
     if (seedEntries.length > 0) {
       const seedSection = document.createElement('div');
       const seedHeader = document.createElement('h3');
-      seedHeader.className = 'text-sm font-bold text-slate-300 mb-2';
+      seedHeader.className = 'text-sm font-bold text-slate-300 mb-2 mt-4';
       seedHeader.textContent = '🌱 Seeds';
       seedSection.appendChild(seedHeader);
 
@@ -60,6 +156,7 @@ export function createInventoryView() {
       list.appendChild(seedSection);
     }
 
+    // === Harvested Crops ===
     if (cropEntries.length > 0) {
       const cropSection = document.createElement('div');
       const cropHeader = document.createElement('h3');
@@ -77,23 +174,14 @@ export function createInventoryView() {
         const totalValue = items.reduce((sum, item) => sum + gameState.getItemSellPrice(cropId, item), 0);
         const heaviest = Math.max(...items.map(i => i.weight));
         const lightest = Math.min(...items.map(i => i.weight));
-        const hasMutations = items.some(i => i.mutations && i.mutations.length > 0);
-
-        let mutationBadges = '';
-        if (hasMutations) {
-          const allMuts = new Set();
-          items.forEach(i => i.mutations?.forEach(m => allMuts.add(m.emoji)));
-          mutationBadges = `<div class="text-xs text-purple-400 mt-0.5">${[...allMuts].join(' ')}</div>`;
-        }
 
         const card = document.createElement('div');
-        card.className = `flex items-center gap-4 p-4 rounded-2xl bg-slate-800/60 border ${hasMutations ? 'border-purple-500/30' : 'border-white/5'}`;
+        card.className = 'flex items-center gap-4 p-4 rounded-2xl bg-slate-800/60 border border-white/5';
         card.innerHTML = `
           <span class="text-3xl flex-shrink-0">${crop.emoji}</span>
           <div class="flex-1 min-w-0">
             <div class="font-semibold text-white">${crop.name} <span class="text-slate-400 text-sm">x${count}</span></div>
             <div class="text-xs text-slate-400 mt-0.5">⚖️ ${lightest.toFixed(2)} – ${heaviest.toFixed(2)} kg</div>
-            ${mutationBadges}
           </div>
           <div class="text-right flex-shrink-0">
             <div class="text-yellow-400 font-semibold text-sm">₱${totalValue.toLocaleString()}</div>
@@ -107,6 +195,7 @@ export function createInventoryView() {
       list.appendChild(cropSection);
     }
 
+    // === Gear ===
     const gearSection = document.createElement('div');
     const gearHeader = document.createElement('h3');
     gearHeader.className = 'text-sm font-bold text-slate-300 mb-2 mt-4';
@@ -115,22 +204,6 @@ export function createInventoryView() {
 
     const gearGrid = document.createElement('div');
     gearGrid.className = 'space-y-2';
-
-    if (gameState.gear.sprinklerLevel > 0) {
-      const names = ['', 'Basic', 'Advanced', 'Golden'];
-      const emojis = ['', '💧', '💦', '🌈'];
-      const card = document.createElement('div');
-      card.className = 'flex items-center gap-3 p-3 rounded-xl bg-blue-900/20 border border-blue-500/20';
-      card.innerHTML = `<span class="text-2xl">${emojis[gameState.gear.sprinklerLevel]}</span><span class="text-white text-sm font-semibold">${names[gameState.gear.sprinklerLevel]} Sprinkler</span>`;
-      gearGrid.appendChild(card);
-    }
-
-    if (gameState.gear.hasShovel) {
-      const card = document.createElement('div');
-      card.className = 'flex items-center gap-3 p-3 rounded-xl bg-orange-900/20 border border-orange-500/20';
-      card.innerHTML = '<span class="text-2xl">🔨</span><span class="text-white text-sm font-semibold">Shovel</span>';
-      gearGrid.appendChild(card);
-    }
 
     if (gameState.gear.fertilizerCount > 0) {
       const card = document.createElement('div');
@@ -143,7 +216,30 @@ export function createInventoryView() {
     list.appendChild(gearSection);
   }
 
+  function startSprinklerTimer() {
+    if (sprinklerTimerInterval) clearInterval(sprinklerTimerInterval);
+    sprinklerTimerInterval = setInterval(() => {
+      const timerEl = container.querySelector('.active-sprinkler-timer');
+      if (!timerEl) { clearInterval(sprinklerTimerInterval); return; }
+      const remaining = gameState.getActiveSprinklerTimeRemaining();
+      if (remaining <= 0) {
+        clearInterval(sprinklerTimerInterval);
+        render(); // Re-render to show expired state
+        return;
+      }
+      timerEl.textContent = formatMs(remaining);
+    }, 1000);
+  }
+
+  function activate() {
+    render();
+  }
+
+  function deactivate() {
+    if (sprinklerTimerInterval) { clearInterval(sprinklerTimerInterval); sprinklerTimerInterval = null; }
+  }
+
   gameState.subscribe(render);
   render();
-  return { element: container, render };
+  return { element: container, render, activate, deactivate };
 }

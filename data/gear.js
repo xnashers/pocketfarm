@@ -1,12 +1,4 @@
 export const GEAR_ITEMS = {
-  shovel: {
-    id: 'shovel',
-    name: 'Shovel',
-    emoji: '🔨',
-    description: 'Remove unwanted crops from plots',
-    cost: 0,
-    type: 'one-time',
-  },
   fertilizer: {
     id: 'fertilizer',
     name: 'Fertilizer',
@@ -17,6 +9,7 @@ export const GEAR_ITEMS = {
   },
 };
 
+// duration: seconds the sprinkler stays active after use
 export const SPRINKLERS = [
   {
     tier: 1,
@@ -24,7 +17,8 @@ export const SPRINKLERS = [
     emoji: '💧',
     cost: 10,
     speedBonus: 0.10,
-    description: '+10% crop growth speed',
+    duration: 300,
+    description: '+10% crop growth speed · 5 min',
   },
   {
     tier: 2,
@@ -32,7 +26,8 @@ export const SPRINKLERS = [
     emoji: '💦',
     cost: 20,
     speedBonus: 0.25,
-    description: '+25% crop growth speed',
+    duration: 300,
+    description: '+25% crop growth speed · 5 min',
   },
   {
     tier: 3,
@@ -41,6 +36,7 @@ export const SPRINKLERS = [
     cost: 30,
     speedBonus: 0.50,
     doubleHarvestBonus: 0.10,
-    description: '+50% growth speed · +10% double harvest',
+    duration: 300,
+    description: '+50% speed · +10% double harvest · 5 min',
   },
 ];
