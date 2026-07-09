@@ -3,6 +3,8 @@ import { showToast } from './toast.js';
 import { playSound } from './sounds.js';
 import { ACHIEVEMENTS, ACHIEVEMENT_CATEGORIES, TITLE_DISPLAY } from '../data/achievements.js';
 import { TOKEN_SHOP_ITEMS } from '../data/token-shop.js';
+import { LEVELS, getLevelReward, LEVEL_MILESTONES } from '../data/levels.js';
+import { CROPS } from '../data/crops.js';
 
 const t = (key, values) => window.miniappI18n?.t(key, values) ?? key;
 
@@ -11,36 +13,207 @@ export function createObjectivesView() {
   el.className = 'p-3 pb-24 space-y-4';
 
   let activeTab = 'objectives';
+  let expandedLevel = null;
 
   function render() {
     el.innerHTML = '';
 
     // Tab selector
     const tabRow = document.createElement('div');
-    tabRow.className = 'flex gap-1 mb-3';
+    tabRow.className = 'flex gap-1 mb-3 overflow-x-auto';
     const tabs = [
-      { id: 'objectives', label: '📋 Objectives', },
+      { id: 'objectives', label: '📋 Objectives' },
+      { id: 'levels', label: '📊 Levels' },
       { id: 'achievements', label: '🏆 Achievements' },
       { id: 'tokens', label: '🪙 Token Shop' },
       { id: 'titles', label: '👑 Titles' },
     ];
     for (const tab of tabs) {
       const btn = document.createElement('button');
-      btn.className = `flex-1 py-2 px-2 rounded-lg text-xs font-bold transition-all ${
+      btn.className = `flex-1 py-2 px-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
         activeTab === tab.id
           ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/30'
           : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
       }`;
       btn.textContent = tab.label;
-      btn.onclick = () => { activeTab = tab.id; render(); };
+      if (tab.id === 'levels') {
+        const unclaimed = gameState.getUnclaimedLevelCount();
+        if (unclaimed > 0) {
+          const badge = document.createElement('span');
+          badge.className = 'ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-bold';
+          badge.textContent = unclaimed > 9 ? '9+' : unclaimed;
+          btn.appendChild(badge);
+        }
+      }
+      btn.onclick = () => { activeTab = tab.id; expandedLevel = null; render(); };
       tabRow.appendChild(btn);
     }
     el.appendChild(tabRow);
 
     if (activeTab === 'objectives') renderObjectives(el);
+    else if (activeTab === 'levels') renderLevels(el);
     else if (activeTab === 'achievements') renderAchievements(el);
     else if (activeTab === 'tokens') renderTokenShop(el);
     else if (activeTab === 'titles') renderTitles(el);
+  }
+
+  // =============================================
+  // LEVELS VIEW
+  // =============================================
+  function renderLevels(container) {
+    const currentLevel = gameState.player.level;
+
+    const header = document.createElement('div');
+    header.className = 'flex items-center justify-between mb-2';
+    header.innerHTML = `
+      <h2 class="text-sm font-bold text-slate-200">📊 Level Rewards</h2>
+      <span class="text-xs text-slate-500">Lv.${currentLevel} · ${gameState.getLevelTitle()}</span>
+    `;
+    container.appendChild(header);
+
+    // XP progress bar
+    const nextXP = gameState.getNextLevelXP();
+    const currentXP = gameState.getCurrentLevelXP();
+    const playerXP = gameState.player.xp;
+    if (nextXP) {
+      const xpInto = playerXP - currentXP;
+      const xpNeeded = nextXP - currentXP;
+      const pct = Math.min(100, Math.round((xpInto / xpNeeded) * 100));
+      const xpBar = document.createElement('div');
+      xpBar.className = 'rounded-xl p-3 border bg-slate-900 border-slate-800 mb-3';
+      xpBar.innerHTML = `
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-xs font-semibold text-slate-300">⭐ Level ${currentLevel} → ${currentLevel + 1}</span>
+          <span class="text-xs text-slate-500">${playerXP.toLocaleString()} / ${nextXP.toLocaleString()} XP</span>
+        </div>
+        <div class="h-2.5 bg-slate-800 rounded-full overflow-hidden">
+          <div class="h-full bg-gradient-to-r from-amber-500 to-yellow-400 rounded-full transition-all" style="width: ${pct}%"></div>
+        </div>
+      `;
+      container.appendChild(xpBar);
+    }
+
+    // Scrollable level list
+    const listWrap = document.createElement('div');
+    listWrap.className = 'space-y-2';
+
+    // Show levels in batches, prioritize current level range
+    const startLevel = Math.max(1, currentLevel - 2);
+    const endLevel = Math.min(LEVELS.length, Math.max(currentLevel + 8, 20));
+
+    for (let i = startLevel - 1; i < endLevel; i++) {
+      const levelData = LEVELS[i];
+      const level = levelData.level;
+      const reached = currentLevel >= level;
+      const claimed = gameState.isLevelRewardClaimed(level);
+      const reward = getLevelReward(level);
+      const crop = reward ? CROPS.find(c => c.id === reward.cropId) : null;
+      const isExpanded = expandedLevel === level;
+      const canClaim = reached && !claimed;
+
+      const card = document.createElement('div');
+      card.className = `rounded-xl border transition-all overflow-hidden ${
+        claimed ? 'bg-slate-900/50 border-slate-800' :
+        canClaim ? 'bg-amber-900/15 border-amber-600/40' :
+        reached ? 'bg-slate-900 border-slate-700' :
+        'bg-slate-900/60 border-slate-800/60'
+      }`;
+
+      // Header row
+      const row = document.createElement('div');
+      row.className = 'flex items-center gap-3 p-3 cursor-pointer';
+      row.innerHTML = `
+        <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-sm font-bold ${
+          claimed ? 'bg-slate-800 text-slate-600' :
+          canClaim ? 'bg-amber-600/30 text-amber-300' :
+          reached ? 'bg-slate-800 text-slate-400' :
+          'bg-slate-800/50 text-slate-600'
+        }">
+          ${level}
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-semibold ${claimed ? 'text-slate-500' : reached ? 'text-slate-200' : 'text-slate-500'}">${levelData.title}</span>
+            ${claimed ? '<span class="text-xs text-emerald-500">✓</span>' : ''}
+          </div>
+          <div class="flex items-center gap-1.5 mt-0.5">
+            ${crop ? `<span class="text-xs ${claimed ? 'text-slate-600' : 'text-slate-400'}">${crop.emoji} ${crop.name} ×${reward.quantity}</span>` : '<span class="text-xs text-slate-600">No reward</span>'}
+            ${!reached ? '<span class="text-xs text-slate-600">🔒</span>' : ''}
+          </div>
+        </div>
+        <button class="px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 flex-shrink-0 ${
+          isExpanded ? 'bg-slate-700 text-slate-300' :
+          canClaim ? 'bg-amber-600 hover:bg-amber-500 text-white' :
+          claimed ? 'bg-slate-800 text-slate-600' :
+          'bg-slate-800 hover:bg-slate-700 text-slate-400'
+        }">
+          ${canClaim ? '🎁 Claim' : isExpanded ? '▲ Hide' : '👁 View'}
+        </button>
+      `;
+
+      // Toggle expand
+      row.querySelector('button').addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (canClaim) {
+          const res = gameState.claimLevelReward(level);
+          if (res.success) {
+            playSound('buy');
+            const cropInfo = CROPS.find(c => c.id === res.reward.cropId);
+            showToast(`${cropInfo?.emoji || '🌱'} ${cropInfo?.name} ×${res.reward.quantity} claimed!`, 'success');
+            render();
+          }
+          return;
+        }
+        expandedLevel = isExpanded ? null : level;
+        render();
+      });
+
+      card.appendChild(row);
+
+      // Expanded content
+      if (isExpanded) {
+        const expanded = document.createElement('div');
+        expanded.className = 'border-t border-slate-800 px-3 pb-3 pt-2 space-y-2';
+
+        // 3 dummy milestone items
+        for (let m = 0; m < LEVEL_MILESTONES.length; m++) {
+          const item = document.createElement('div');
+          item.className = 'flex items-center gap-2 py-1.5 px-2 rounded-lg bg-slate-800/40';
+          item.innerHTML = `
+            <span class="text-xs text-amber-400">▸</span>
+            <span class="text-xs text-slate-500">${LEVEL_MILESTONES[m]}</span>
+            <span class="ml-auto text-[10px] text-slate-600 italic">locked</span>
+          `;
+          expanded.appendChild(item);
+        }
+
+        // Seed reward details
+        if (crop && reward) {
+          const rewardRow = document.createElement('div');
+          rewardRow.className = `flex items-center gap-2 py-2 px-2 rounded-lg mt-1 ${
+            claimed ? 'bg-emerald-900/10 border border-emerald-800/30' :
+            canClaim ? 'bg-amber-900/10 border border-amber-700/30' :
+            'bg-slate-800/40'
+          }`;
+          rewardRow.innerHTML = `
+            <span class="text-xl">${crop.emoji}</span>
+            <div class="flex-1">
+              <p class="text-xs font-semibold ${claimed ? 'text-emerald-400' : reached ? 'text-amber-300' : 'text-slate-500'}">
+                ${claimed ? '✅ Claimed' : reached ? '🌱 Ready to claim!' : '🔒 Reach Level ' + level}
+              </p>
+              <p class="text-[10px] text-slate-500">${crop.name} seeds ×${reward.quantity}</p>
+            </div>
+          `;
+          expanded.appendChild(rewardRow);
+        }
+
+        card.appendChild(expanded);
+      }
+
+      listWrap.appendChild(card);
+    }
+
+    container.appendChild(listWrap);
   }
 
   function renderObjectives(container) {
