@@ -214,9 +214,19 @@ export function createFarmView() {
       if (isReady) {
         const glowClass = mutations.length > 0 ? 'mutation-glow' : 'ready-glow';
         card.className += ` border-green-400/60 bg-green-900/30 cursor-pointer hover:bg-green-900/50 ${glowClass}`;
+
+        const mutationBadges = mutations.length > 0
+          ? `<div class="flex flex-wrap gap-1 mt-1 justify-center">${mutations.map(m =>
+              `<span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                m.isSecret ? 'bg-purple-600/40 text-purple-200 border border-purple-400/30' : 'bg-amber-600/30 text-amber-200 border border-amber-400/20'
+              }">${m.emoji} ${m.name}${m.isSecret ? ` x${m.bonusMultiplier}` : ` x${m.multiplier}`}</span>`
+            ).join('')}</div>`
+          : '';
+
         card.innerHTML = `
           <div class="flex flex-col items-center justify-center py-5 px-3 gap-1">
             <span class="text-3xl">${crop.emoji}</span>
+            ${mutationBadges}
             <span class="text-xs font-bold text-green-300 animate-pulse">${t('app.farm.ready')}</span>
             <div class="flex gap-1 mt-2">
               <button class="px-3 py-1.5 bg-green-500 hover:bg-green-400 text-slate-900 rounded-xl text-xs font-bold transition harvest-btn active:scale-95">✨ ${t('app.farm.harvest')}</button>
