@@ -15,6 +15,7 @@ export function showToast(message, type = 'success') {
     error: 'bg-red-600 text-white',
     info: 'bg-blue-600 text-white',
     gold: 'bg-yellow-500 text-slate-900',
+    warning: 'bg-amber-600 text-white',
   };
   el.className = `${colors[type] || colors.success} px-4 py-2 rounded-xl text-sm font-semibold shadow-lg pointer-events-auto animate-fade-in`;
   el.textContent = message;

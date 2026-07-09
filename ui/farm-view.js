@@ -10,6 +10,67 @@ const t = (key, values) => window.miniappI18n?.t(key, values) ?? key;
 let timerInterval = null;
 let weatherInterval = null;
 
+function renderWeatherEffects() {
+  const weatherFx = document.getElementById('weather-effects');
+  if (!weatherFx) return;
+  const w = gameState.currentWeather;
+  if (!w) { weatherFx.innerHTML = ''; return; }
+
+  let particles = '';
+  const count = 40;
+
+  if (w.id === 'rain' || w.id === 'thunderstorm') {
+    for (let i = 0; i < count; i++) {
+      const left = Math.random() * 100;
+      const delay = Math.random() * 2;
+      const duration = 0.5 + Math.random() * 0.5;
+      particles += `<div class="weather-rain" style="left:${left}%;animation-delay:${delay}s;animation-duration:${duration}s"></div>`;
+    }
+    weatherFx.innerHTML = particles;
+    if (w.id === 'thunderstorm') {
+      weatherFx.className = 'fixed inset-0 pointer-events-none z-10 overflow-hidden thunder-flash';
+    } else {
+      weatherFx.className = 'fixed inset-0 pointer-events-none z-10 overflow-hidden';
+    }
+  } else if (w.id === 'snow') {
+    for (let i = 0; i < 30; i++) {
+      const left = Math.random() * 100;
+      const delay = Math.random() * 5;
+      const duration = 3 + Math.random() * 4;
+      const size = 4 + Math.random() * 6;
+      particles += `<div class="weather-snow" style="left:${left}%;animation-delay:${delay}s;animation-duration:${duration}s;width:${size}px;height:${size}px"></div>`;
+    }
+    weatherFx.innerHTML = particles;
+    weatherFx.className = 'fixed inset-0 pointer-events-none z-10 overflow-hidden';
+  } else if (w.id === 'fog') {
+    weatherFx.innerHTML = '<div class="weather-fog"></div>';
+    weatherFx.className = 'fixed inset-0 pointer-events-none z-10 overflow-hidden';
+  } else if (w.id === 'cherry') {
+    for (let i = 0; i < 15; i++) {
+      const left = Math.random() * 100;
+      const delay = Math.random() * 8;
+      const duration = 4 + Math.random() * 6;
+      particles += `<div class="weather-petal" style="left:${left}%;animation-delay:${delay}s;animation-duration:${duration}s"></div>`;
+    }
+    weatherFx.innerHTML = particles;
+    weatherFx.className = 'fixed inset-0 pointer-events-none z-10 overflow-hidden';
+  } else if (w.id === 'meteor') {
+    for (let i = 0; i < 5; i++) {
+      const left = 20 + Math.random() * 60;
+      const delay = Math.random() * 6;
+      particles += `<div class="weather-meteor" style="left:${left}%;animation-delay:${delay}s"></div>`;
+    }
+    weatherFx.innerHTML = particles;
+    weatherFx.className = 'fixed inset-0 pointer-events-none z-10 overflow-hidden';
+  } else if (w.id === 'aurora') {
+    weatherFx.innerHTML = '<div class="weather-aurora"></div>';
+    weatherFx.className = 'fixed inset-0 pointer-events-none z-10 overflow-hidden';
+  } else {
+    weatherFx.innerHTML = '';
+    weatherFx.className = 'fixed inset-0 pointer-events-none z-10 overflow-hidden';
+  }
+}
+
 function formatGrowTime(seconds) {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
@@ -59,24 +120,37 @@ function createSeedPopup() {
         const crop = gameState.getCrop(cropId);
         if (!crop) continue;
 
+        const blockInfo = gameState.getWeatherPlantingBlock(cropId);
+        const isBlocked = blockInfo.blocked;
+
         const item = document.createElement('button');
         item.type = 'button';
-        item.className = 'w-full flex items-center gap-4 p-3 rounded-xl bg-slate-700/50 hover:bg-slate-700 active:bg-slate-600 cursor-pointer transition text-left';
+        item.className = `w-full flex items-center gap-4 p-3 rounded-xl transition text-left ${
+          isBlocked ? 'bg-slate-800/50 opacity-50 cursor-not-allowed' : 'bg-slate-700/50 hover:bg-slate-700 active:bg-slate-600 cursor-pointer'
+        }`;
         item.innerHTML = `
           <span class="text-3xl flex-shrink-0">${crop.emoji}</span>
           <div class="flex-1 min-w-0">
             <div class="font-semibold text-white">${crop.name}</div>
             <div class="text-xs text-slate-400">⏱ ${formatGrowTime(gameState.getEffectiveGrowTime(cropId))} · 💰₱${crop.sellPrice}/kg</div>
+            ${isBlocked ? `<div class="text-[10px] text-amber-400 mt-0.5">🚫 ${blockInfo.message}</div>` : ''}
           </div>
           <span class="text-sm font-bold text-green-400">x${count}</span>
         `;
-        item.addEventListener('click', () => {
-          if (gameState.plantCrop(targetPlot, cropId)) {
-            playSound('plant');
-            showToast(t('app.toast.planted', { crop: crop.emoji }), 'success');
-          }
-          close();
-        });
+        if (isBlocked) {
+          item.disabled = true;
+        } else {
+          item.addEventListener('click', () => {
+            const result = gameState.plantCrop(targetPlot, cropId);
+            if (result && result.success) {
+              playSound('plant');
+              showToast(t('app.toast.planted', { crop: crop.emoji }), 'success');
+            } else if (result && result.reason === 'weather_blocked') {
+              showToast(result.message, 'warning');
+            }
+            close();
+          });
+        }
         list.appendChild(item);
       }
     }
@@ -142,6 +216,12 @@ function createSprinklerBar() {
 export function createFarmView() {
   const container = document.createElement('div');
   container.className = 'p-4 pb-24 max-w-lg mx-auto';
+
+  // Weather visual effects overlay
+  const weatherFx = document.createElement('div');
+  weatherFx.id = 'weather-effects';
+  weatherFx.className = 'fixed inset-0 pointer-events-none z-10 overflow-hidden';
+  container.appendChild(weatherFx);
 
   const weatherDisplay = createWeatherDisplay();
   container.appendChild(weatherDisplay.element);
@@ -375,6 +455,7 @@ export function createFarmView() {
 
   function weatherTick() {
     gameState.checkAndApplyWeather();
+    renderWeatherEffects();
   }
 
   function startTimer() {
@@ -389,7 +470,7 @@ export function createFarmView() {
     if (weatherInterval) { clearInterval(weatherInterval); weatherInterval = null; }
   }
 
-  function activate() { render(); startTimer(); weatherDisplay.startTimer?.(); }
+  function activate() { render(); startTimer(); weatherDisplay.startTimer?.(); renderWeatherEffects(); }
   function deactivate() { stopTimer(); weatherDisplay.stopTimer?.(); }
 
   gameState.subscribe(render);

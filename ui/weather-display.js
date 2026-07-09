@@ -22,20 +22,22 @@ export function createWeatherDisplay() {
 
     const remaining = gameState.getWeatherTimeRemaining();
 
-    // Check for forecast from Weather Center
+    // Only show forecast if purchased
     let forecastHTML = '';
-    if (gameState.forecastResult && Date.now() < gameState.forecastResult.expiresAt) {
+    if (gameState.forecastResult && gameState.forecastResult.purchased && Date.now() < gameState.forecastResult.expiresAt) {
       forecastHTML = `<span class="text-blue-400 text-[10px]">📡 Next: ${gameState.forecastResult.emoji}</span>`;
     }
 
     const isRareActive = gameState.isRareBoostActive();
+    const mutBonus = gameState.getWeatherMutationBonus();
+    const bonusStr = mutBonus > 0 ? `<span class="text-amber-400 text-[10px]">🧬 +${Math.round(mutBonus * 100)}% mutation</span>` : '';
 
     container.innerHTML = `
       <div class="flex items-center gap-2 flex-1 min-w-0">
         <span class="text-2xl flex-shrink-0">${weather.emoji}</span>
         <div class="min-w-0">
           <div class="font-semibold text-white text-sm">${weather.name}</div>
-          <div class="text-xs text-purple-400">${weather.mutationEmoji} ${weather.mutation} · x${weather.multiplier} ${forecastHTML}</div>
+          <div class="text-xs text-purple-400">${weather.mutationEmoji} ${weather.mutation} · x${weather.multiplier} ${forecastHTML} ${bonusStr}</div>
         </div>
       </div>
       <div class="text-right flex-shrink-0">

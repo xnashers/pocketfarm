@@ -435,6 +435,9 @@ class GameState {
     if (!plot || plot.status !== 'empty') return false;
     if (!this.seeds[cropId] || this.seeds[cropId] <= 0) return false;
     if (!this.getCrop(cropId)) return false;
+    // Weather planting restrictions
+    const blockInfo = this.getWeatherPlantingBlock(cropId);
+    if (blockInfo.blocked) return { success: false, reason: 'weather_blocked', message: blockInfo.message };
     this.seeds[cropId]--;
     if (this.seeds[cropId] <= 0) delete this.seeds[cropId];
     const now = Date.now();
@@ -450,7 +453,7 @@ class GameState {
     this._trackObjective('plant');
     this.stats.totalPlanted++;
     this.save();
-    return true;
+    return { success: true };
   }
 
   // === Harvesting ===
@@ -680,10 +683,13 @@ class GameState {
   _changeWeather() {
     this.currentWeather = this._pickRandomWeather();
     this.lastWeatherChange = Date.now();
-    const nextWeather = this._pickRandomWeather();
-    this.forecastResult = { weatherId: nextWeather.id, emoji: nextWeather.emoji, name: nextWeather.name, expiresAt: Date.now() + WEATHER_CHANGE_INTERVAL };
+    // Forecast must be purchased — clear stale forecast on weather change
+    if (this.forecastResult && Date.now() >= this.forecastResult.expiresAt) {
+      this.forecastResult = null;
+    }
     const mutChanceResearch = (this.researchLevels.mutation_chance || 0) * 0.005;
-    const effectiveMutationChance = Math.min(0.95, MUTATION_CHANCE + mutChanceResearch);
+    const weatherMutBonus = this.getWeatherMutationBonus();
+    const effectiveMutationChance = Math.min(0.95, MUTATION_CHANCE + mutChanceResearch + weatherMutBonus);
     const secretBonus = (this.mutationLabLevels.secret_chance || 0) * 0.02;
     const maxStack = 5 + (this.mutationLabLevels.stack_limit || 0);
 
@@ -752,6 +758,34 @@ class GameState {
 
   checkAndApplyWeather() {
     this._checkWeather();
+  }
+
+  // === Weather Planting Restrictions ===
+  getWeatherPlantingBlock(cropId) {
+    if (!this.currentWeather) return { blocked: false };
+    const crop = this.getCrop(cropId);
+    if (!crop) return { blocked: false };
+    const w = this.currentWeather;
+    // Snow: block premium & advanced crops
+    if (w.id === 'snow' && (crop.category === 'premium' || crop.category === 'advanced')) {
+      return { blocked: true, message: `${w.emoji} Too cold! ${crop.name} can't be planted during ${w.name}.` };
+    }
+    // Thunderstorm: block planting (dangerous!)
+    if (w.id === 'thunderstorm' && crop.category === 'premium') {
+      return { blocked: true, message: `${w.emoji} Lightning danger! Premium crops can't be planted during ${w.name}.` };
+    }
+    return { blocked: false };
+  }
+
+  // Weather mutation bonus (some weather increases mutation chance)
+  getWeatherMutationBonus() {
+    if (!this.currentWeather) return 0;
+    const w = this.currentWeather;
+    // Cherry Blossom, Full Moon, Aurora, Divine: +15% mutation chance
+    if (['cherry', 'fullmoon', 'aurora', 'divine'].includes(w.id)) return 0.15;
+    // Rainbow, Meteor, Eclipse: +10%
+    if (['rainbow', 'meteor', 'eclipse'].includes(w.id)) return 0.10;
+    return 0;
   }
 
   // === Farm Name ===
@@ -863,7 +897,7 @@ class GameState {
     if (this.player.peso < WEATHER_CENTER.forecast.cost) return { success: false, reason: 'cost' };
     this.player.peso -= WEATHER_CENTER.forecast.cost;
     const next = this._pickRandomWeather();
-    this.forecastResult = { weatherId: next.id, emoji: next.emoji, name: next.name, expiresAt: Date.now() + this.getEffectiveWeatherInterval() };
+    this.forecastResult = { weatherId: next.id, emoji: next.emoji, name: next.name, expiresAt: Date.now() + this.getEffectiveWeatherInterval(), purchased: true };
     this.save();
     return { success: true, weather: this.forecastResult };
   }
@@ -1260,6 +1294,42 @@ class GameState {
   getRemainingMs(plot) {
     if (plot.status !== 'growing' || !plot.harvestAt) return 0;
     return Math.max(0, plot.harvestAt - Date.now());
+  }
+
+  // =============================================
+  // ADMIN / TESTING
+  // =============================================
+  async resetAllData() {
+    const storage = window.miniappsAI?.storage;
+    if (storage) {
+      await storage.removeItem('pocketfarm_save');
+    } else {
+      localStorage.removeItem('pocketfarm_save');
+    }
+    // Reload page to start fresh
+    window.location.reload();
+  }
+
+  applyCheatCode(code) {
+    const c = (code || '').trim().toLowerCase();
+    if (c === 'hesoyam') {
+      this.player.peso += 9999999;
+      this.addXP(9999999);
+      this.save();
+      return { success: true, message: '💰 +₱9,999,999 · ⭐ +9,999,999 XP' };
+    }
+    if (c === 'growall') {
+      let count = 0;
+      for (const plot of this.plots) {
+        if (plot.status === 'growing' && plot.cropId) {
+          plot.status = 'ready';
+          count++;
+        }
+      }
+      this.save();
+      return { success: true, message: `🌱 ${count} crops instantly grown!` };
+    }
+    return { success: false, message: '❌ Invalid cheat code' };
   }
 
   // === Persistence ===

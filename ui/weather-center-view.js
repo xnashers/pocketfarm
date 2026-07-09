@@ -12,13 +12,16 @@ export function renderWeatherCenter(container) {
   banner.className = 'mb-4 p-3 rounded-xl bg-cyan-900/30 border border-cyan-500/20';
 
   let forecastStr = '—';
-  if (gameState.forecastResult && Date.now() < gameState.forecastResult.expiresAt) {
+  if (gameState.forecastResult && gameState.forecastResult.purchased && Date.now() < gameState.forecastResult.expiresAt) {
     forecastStr = `${gameState.forecastResult.emoji} ${gameState.forecastResult.name}`;
+  } else if (!gameState.forecastResult || !gameState.forecastResult.purchased) {
+    forecastStr = '<span class="text-slate-600">🔒 Buy to unlock</span>';
   }
 
   const weather = gameState.currentWeather;
   const weatherStr = weather ? `${weather.emoji} ${weather.name}` : '—';
   const isRareActive = gameState.isRareBoostActive();
+  const mutBonus = gameState.getWeatherMutationBonus();
 
   banner.innerHTML = `
     <div class="flex items-center gap-2 mb-2">
@@ -35,6 +38,7 @@ export function renderWeatherCenter(container) {
         <div class="font-semibold text-blue-300">${forecastStr}</div>
       </div>
     </div>
+    ${mutBonus > 0 ? `<div class="mt-2 text-xs text-purple-400 font-bold text-center">🧬 +${Math.round(mutBonus * 100)}% mutation chance this weather!</div>` : ''}
     ${isRareActive ? '<div class="mt-2 text-xs text-amber-400 font-bold text-center">🌟 Rare Weather Boost Active!</div>' : ''}
   `;
   container.appendChild(banner);

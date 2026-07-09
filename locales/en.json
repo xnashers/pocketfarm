@@ -57,7 +57,8 @@
       "double": "Double harvest! 🎉",
       "farm_named": "Welcome to {name}! 🌱",
       "plot_bought": "🔓 New plot unlocked!",
-      "harvested_crop": "Harvested {crop}!"
+      "harvested_crop": "Harvested {crop}!",
+      "weather_blocked": "🚫 Can't plant this crop in current weather!"
     }
   }
 }

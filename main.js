@@ -13,6 +13,7 @@ import { showLoginRewardPopup } from './ui/login-reward-popup.js';
 import { initToast, showToast } from './ui/toast.js';
 import { playSound } from './ui/sounds.js';
 import { createMusicButton } from './ui/music.js';
+import { createTutorialOverlay } from './ui/tutorial-view.js';
 
 const t = (key, values) => window.miniappI18n?.t(key, values) ?? key;
 
@@ -30,7 +31,11 @@ async function init() {
         gameState.setFarmName(name);
         gameState.isNewPlayer = false;
         showToast(t('app.toast.farm_named', { name: gameState.getDisplayName() }), 'success');
-        startGame(app);
+        // Show tutorial for new players
+        const tutorial = createTutorialOverlay(() => {
+          startGame(app);
+        });
+        document.body.appendChild(tutorial);
       });
       app.appendChild(welcome);
     } else {
