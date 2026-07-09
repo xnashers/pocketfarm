@@ -1,6 +1,7 @@
-// Background music player — plays data/music.mp3
+// Background music player — plays data/music.mp3 with autoplay
 let audio = null;
 let isPlaying = false;
+let muteBtnRef = null;
 
 function getAudio() {
   if (!audio) {
@@ -12,14 +13,24 @@ function getAudio() {
   return audio;
 }
 
+function updateBtn() {
+  const btn = muteBtnRef;
+  if (!btn) return;
+  btn.textContent = isPlaying ? '🎵' : '🔇';
+  btn.classList.toggle('bg-green-800/90', isPlaying);
+  btn.classList.toggle('bg-slate-800/90', !isPlaying);
+  btn.classList.toggle('music-pulse', isPlaying);
+}
+
 export function startMusic() {
   if (isPlaying) return;
   const a = getAudio();
   a.play().then(() => {
     isPlaying = true;
+    updateBtn();
   }).catch(() => {
-    // Autoplay blocked — user must click the music button
     isPlaying = false;
+    updateBtn();
   });
 }
 
@@ -28,6 +39,7 @@ export function stopMusic() {
   audio.pause();
   audio.currentTime = 0;
   isPlaying = false;
+  updateBtn();
 }
 
 export function toggleMusic() {
@@ -43,6 +55,24 @@ export function isMusicPlaying() {
   return isPlaying;
 }
 
+// Try autoplay immediately; if blocked, start on first user interaction
+function tryAutoplay() {
+  const a = getAudio();
+  a.play().then(() => {
+    isPlaying = true;
+    updateBtn();
+  }).catch(() => {
+    // Blocked — wait for any user gesture, then try once
+    const onInteract = () => {
+      document.removeEventListener('pointerdown', onInteract);
+      document.removeEventListener('keydown', onInteract);
+      startMusic();
+    };
+    document.addEventListener('pointerdown', onInteract, { once: true });
+    document.addEventListener('keydown', onInteract, { once: true });
+  });
+}
+
 // Create a floating music toggle button
 export function createMusicButton() {
   const btn = document.createElement('button');
@@ -50,19 +80,14 @@ export function createMusicButton() {
   btn.setAttribute('aria-label', 'Toggle music');
   btn.textContent = '🔇';
 
+  muteBtnRef = btn;
+
   btn.addEventListener('click', () => {
-    const playing = toggleMusic();
-    btn.textContent = playing ? '🎵' : '🔇';
-    btn.className = btn.className.replace(
-      playing ? 'bg-slate-800/90' : 'bg-green-800/90',
-      playing ? 'bg-green-800/90' : 'bg-slate-800/90'
-    );
-    if (playing) {
-      btn.classList.add('music-pulse');
-    } else {
-      btn.classList.remove('music-pulse');
-    }
+    toggleMusic();
   });
+
+  // Kick off autoplay right away
+  tryAutoplay();
 
   return btn;
 }
