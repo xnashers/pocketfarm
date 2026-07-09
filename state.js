@@ -35,6 +35,8 @@ class GameState {
     this.cropMastery = {};
     this.weatherBoostExpiresAt = 0;
     this.forecastResult = null;
+    this.forecastLevel = 0;
+    this.forecastQueue = [];
     this.farmerTokens = 0;
     this.titles = { owned: [], active: null };
     this.giftCrates = 0;
@@ -116,6 +118,16 @@ class GameState {
       this.cropMastery = saved.cropMastery || {};
       this.weatherBoostExpiresAt = saved.weatherBoostExpiresAt || 0;
       this.forecastResult = saved.forecastResult || null;
+      this.forecastLevel = saved.forecastLevel || 0;
+      this.forecastQueue = saved.forecastQueue || [];
+      // Migrate old forecast system
+      if (this.forecastResult && this.forecastResult.purchased && !this.forecastLevel) {
+        this.forecastLevel = 1;
+        this.forecastResult = null;
+        if (this.forecastQueue.length === 0) {
+          this.forecastQueue.push(this._pickRandomWeather().id);
+        }
+      }
       this.farmerTokens = saved.farmerTokens || 0;
       this.titles = saved.titles || { owned: [], active: null };
       this.giftCrates = saved.giftCrates || 0;
@@ -471,7 +483,7 @@ class GameState {
 
     const active = this.getActiveSprinkler();
     const sp = active ? SPRINKLERS.find(s => s.tier === active.tier) : null;
-    const doubleChance = sp && sp.doubleHarvestBonus ? sp.doubleHarvestBonus * 100 : 0;
+    const doubleChance = sp && sp.doubleHarvestBonus ? Math.round(sp.doubleHarvestBonus * 100) : 0;
     const isDouble = Math.random() * 100 < doubleChance;
     const qty = isDouble ? 2 : 1;
 
@@ -699,12 +711,19 @@ class GameState {
   }
 
   _changeWeather() {
-    this.currentWeather = this._pickRandomWeather();
-    this.lastWeatherChange = Date.now();
-    // Forecast must be purchased — clear stale forecast on weather change
-    if (this.forecastResult && Date.now() >= this.forecastResult.expiresAt) {
-      this.forecastResult = null;
+    // Use forecast queue if available, otherwise pick random
+    if (this.forecastLevel > 0 && this.forecastQueue.length > 0) {
+      const predictedId = this.forecastQueue.shift();
+      const predicted = WEATHER_TYPES.find(w => w.id === predictedId);
+      this.currentWeather = predicted || this._pickRandomWeather();
+      // Refill queue to match forecast level
+      while (this.forecastQueue.length < this.forecastLevel) {
+        this.forecastQueue.push(this._pickRandomWeather().id);
+      }
+    } else {
+      this.currentWeather = this._pickRandomWeather();
     }
+    this.lastWeatherChange = Date.now();
     const mutChanceResearch = (this.researchLevels.mutation_chance || 0) * 0.005;
     const weatherMutBonus = this.getWeatherMutationBonus();
     const effectiveMutationChance = Math.min(0.95, MUTATION_CHANCE + mutChanceResearch + weatherMutBonus);
@@ -911,13 +930,27 @@ class GameState {
   // =============================================
   // WEATHER CENTER
   // =============================================
-  forecastWeather() {
-    if (this.player.peso < WEATHER_CENTER.forecast.cost) return { success: false, reason: 'cost' };
-    this.player.peso -= WEATHER_CENTER.forecast.cost;
-    const next = this._pickRandomWeather();
-    this.forecastResult = { weatherId: next.id, emoji: next.emoji, name: next.name, expiresAt: Date.now() + this.getEffectiveWeatherInterval(), purchased: true };
+  upgradeForecast() {
+    if (this.forecastLevel >= WEATHER_CENTER.forecast.maxLevel) return { success: false, reason: 'max' };
+    const nextLevel = this.forecastLevel + 1;
+    const cost = WEATHER_CENTER.forecast.costs[nextLevel];
+    if (this.player.peso < cost) return { success: false, reason: 'cost' };
+    this.player.peso -= cost;
+    this.forecastLevel = nextLevel;
+    // Generate/expand forecast queue
+    while (this.forecastQueue.length < nextLevel) {
+      this.forecastQueue.push(this._pickRandomWeather().id);
+    }
     this.save();
-    return { success: true, weather: this.forecastResult };
+    return { success: true, level: nextLevel };
+  }
+
+  getForecastQueue() {
+    if (this.forecastLevel <= 0) return [];
+    return (this.forecastQueue || []).map(id => {
+      const wt = WEATHER_TYPES.find(w => w.id === id);
+      return wt || { id, emoji: '❓', name: 'Unknown', mutation: '?', mutationEmoji: '?' };
+    });
   }
 
   skipWeather() {
@@ -1371,6 +1404,8 @@ class GameState {
       cropMastery: this.cropMastery,
       weatherBoostExpiresAt: this.weatherBoostExpiresAt,
       forecastResult: this.forecastResult,
+      forecastLevel: this.forecastLevel,
+      forecastQueue: this.forecastQueue,
       farmerTokens: this.farmerTokens,
       titles: this.titles,
       giftCrates: this.giftCrates,
