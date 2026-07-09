@@ -56,6 +56,7 @@ class GameState {
     this.loginRewards = { lastLoginDate: '', streak: 0, totalLoginDays: 0, monthlyClaimed: {} };
     this.pendingLoginReward = null;
     this.levelRewardsClaimed = {};
+    this.favorites = [];
   }
 
   async init() {
@@ -132,6 +133,7 @@ class GameState {
       this.achievements = saved.achievements || {};
       this.loginRewards = saved.loginRewards || { lastLoginDate: '', streak: 0, totalLoginDays: 0, monthlyClaimed: {} };
       this.levelRewardsClaimed = saved.levelRewardsClaimed || {};
+      this.favorites = saved.favorites || [];
     } else {
       this.isNewPlayer = true;
       this._giveStarterSeeds();
@@ -602,6 +604,22 @@ class GameState {
     this.plots.push({ id: this.plots.length, status: 'empty', cropId: null, plantedAt: null, harvestAt: null, mutations: [], fertilized: false, harvestCount: 0 });
     this.save();
     return true;
+  }
+
+  // === Favorites ===
+  isFavorite(index) {
+    return this.favorites.includes(index);
+  }
+
+  toggleFavorite(index) {
+    const idx = this.favorites.indexOf(index);
+    if (idx >= 0) {
+      this.favorites.splice(idx, 1);
+    } else {
+      this.favorites.push(index);
+    }
+    this.save();
+    return this.favorites.includes(index);
   }
 
   // === Mutations ===
@@ -1363,6 +1381,7 @@ class GameState {
       achievements: this.achievements,
       loginRewards: this.loginRewards,
       levelRewardsClaimed: this.levelRewardsClaimed,
+      favorites: this.favorites,
     });
     this.notify();
   }
