@@ -250,6 +250,8 @@ export function createFarmView() {
     card.className = 'relative rounded-2xl border-2 transition-all duration-200 overflow-hidden';
     card.dataset.plotIndex = index;
 
+    const isFav = gameState.isFavorite(index);
+
     if (plot.status === 'empty') {
       card.className += ' border-dashed border-slate-600 bg-slate-800/50 hover:border-green-500/50 hover:bg-slate-800 cursor-pointer active:scale-95';
       card.innerHTML = `
@@ -308,16 +310,17 @@ export function createFarmView() {
             <span class="text-3xl">${crop.emoji}</span>
             ${mutationBadges}
             <span class="text-xs font-bold text-green-300 animate-pulse">${t('app.farm.ready')}</span>
-            <div class="flex gap-1 mt-2">
-              <button class="px-3 py-1.5 bg-green-500 hover:bg-green-400 text-slate-900 rounded-xl text-xs font-bold transition harvest-btn active:scale-95">✨ ${t('app.farm.harvest')}</button>
-            </div>
+
           </div>
         `;
-        card.querySelector('.harvest-btn').addEventListener('click', (e) => {
-          e.stopPropagation();
+        card.addEventListener('click', () => {
+          if (gameState.isFavorite(index)) {
+            showToast('❤️ This plot is favorited! Unfavorite it first to harvest.', 'warning');
+            playSound('click');
+            return;
+          }
           handleHarvest(index);
         });
-        card.addEventListener('click', () => handleHarvest(index));
       } else {
         const canFertilize = !plot.fertilized && gameState.gear.fertilizerCount > 0;
         card.className += ' border-slate-600/40 bg-slate-800/30';
@@ -354,6 +357,26 @@ export function createFarmView() {
           });
         }
       }
+    }
+
+    // ❤️ Favorite toggle — top-right corner, always visible on non-empty plots
+    if (plot.status !== 'empty') {
+      const favBtn = document.createElement('button');
+      favBtn.type = 'button';
+      favBtn.className = 'absolute top-1.5 right-1.5 z-20 w-7 h-7 flex items-center justify-center rounded-full transition-all duration-150 active:scale-90';
+      favBtn.style.cssText = isFav
+        ? 'background: rgba(236, 72, 153, 0.3); border: 1px solid rgba(236, 72, 153, 0.5);'
+        : 'background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255,255,255,0.1);';
+      favBtn.innerHTML = `<span class="text-sm leading-none" style="filter: ${isFav ? 'none' : 'grayscale(1) opacity(0.4)'}">${isFav ? '❤️' : '🤍'}</span>`;
+      favBtn.setAttribute('aria-label', isFav ? 'Unfavorite plot' : 'Favorite plot');
+      favBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const nowFav = gameState.toggleFavorite(index);
+        playSound('click');
+        showToast(nowFav ? '❤️ Plot favorited! Protected from accidental harvest.' : '🤍 Plot unfavorited.', 'info');
+        render();
+      });
+      card.appendChild(favBtn);
     }
 
     return card;
