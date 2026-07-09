@@ -14,6 +14,7 @@ import { initToast, showToast } from './ui/toast.js';
 import { playSound } from './ui/sounds.js';
 import { createMusicButton } from './ui/music.js';
 import { createTutorialOverlay } from './ui/tutorial-view.js';
+import { createUpdateNotesOverlay, hasSeenUpdateNotes, markUpdateNotesSeen } from './ui/update-notes.js';
 
 const t = (key, values) => window.miniappI18n?.t(key, values) ?? key;
 
@@ -25,23 +26,39 @@ async function init() {
 
   initToast();
 
-  createSplashScreen(() => {
-    if (gameState.isNewPlayer) {
-      const welcome = createWelcomeScreen((name) => {
-        gameState.setFarmName(name);
-        gameState.isNewPlayer = false;
-        showToast(t('app.toast.farm_named', { name: gameState.getDisplayName() }), 'success');
-        // Show tutorial for new players
-        const tutorial = createTutorialOverlay(() => {
-          startGame(app);
-        });
-        document.body.appendChild(tutorial);
+  createSplashScreen(async () => {
+    // Check if player has seen the update notes
+    const seen = await hasSeenUpdateNotes();
+
+    if (!seen) {
+      // Show update notes overlay for all players (new & returning)
+      const updateNotes = createUpdateNotesOverlay(async () => {
+        await markUpdateNotesSeen();
+        proceedAfterSplash(app);
       });
-      app.appendChild(welcome);
+      document.body.appendChild(updateNotes);
     } else {
-      startGame(app);
+      proceedAfterSplash(app);
     }
   });
+}
+
+function proceedAfterSplash(app) {
+  if (gameState.isNewPlayer) {
+    const welcome = createWelcomeScreen((name) => {
+      gameState.setFarmName(name);
+      gameState.isNewPlayer = false;
+      showToast(t('app.toast.farm_named', { name: gameState.getDisplayName() }), 'success');
+      // Show tutorial for new players
+      const tutorial = createTutorialOverlay(() => {
+        startGame(app);
+      });
+      document.body.appendChild(tutorial);
+    });
+    app.appendChild(welcome);
+  } else {
+    startGame(app);
+  }
 }
 
 function startGame(app) {
