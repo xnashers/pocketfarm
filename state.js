@@ -1,5 +1,5 @@
 import { CROPS } from './data/crops.js';
-import { LEVELS } from './data/levels.js';
+import { LEVELS, getLevelReward } from './data/levels.js';
 import { SPRINKLERS } from './data/gear.js';
 import { WEATHER_TYPES, SECRET_MUTATIONS, WEATHER_CHANGE_INTERVAL, MUTATION_CHANCE } from './data/weather.js';
 import { loadGame, saveGame } from './storage.js';
@@ -55,6 +55,7 @@ class GameState {
     this.achievements = {};
     this.loginRewards = { lastLoginDate: '', streak: 0, totalLoginDays: 0, monthlyClaimed: {} };
     this.pendingLoginReward = null;
+    this.levelRewardsClaimed = {};
   }
 
   async init() {
@@ -130,6 +131,7 @@ class GameState {
       this.dailyObjectives = saved.dailyObjectives || { date: '', objectives: [], chestClaimed: false };
       this.achievements = saved.achievements || {};
       this.loginRewards = saved.loginRewards || { lastLoginDate: '', streak: 0, totalLoginDays: 0, monthlyClaimed: {} };
+      this.levelRewardsClaimed = saved.levelRewardsClaimed || {};
     } else {
       this.isNewPlayer = true;
       this._giveStarterSeeds();
@@ -1221,6 +1223,32 @@ class GameState {
     return this.titles.active;
   }
 
+  // =============================================
+  // LEVEL REWARDS
+  // =============================================
+  isLevelRewardClaimed(level) {
+    return !!this.levelRewardsClaimed[level];
+  }
+
+  claimLevelReward(level) {
+    if (this.player.level < level) return { success: false, reason: 'not_reached' };
+    if (this.levelRewardsClaimed[level]) return { success: false, reason: 'claimed' };
+    const reward = getLevelReward(level);
+    if (!reward) return { success: false, reason: 'invalid' };
+    this.seeds[reward.cropId] = (this.seeds[reward.cropId] || 0) + reward.quantity;
+    this.levelRewardsClaimed[level] = true;
+    this.save();
+    return { success: true, reward };
+  }
+
+  getUnclaimedLevelCount() {
+    let count = 0;
+    for (let i = 1; i <= this.player.level; i++) {
+      if (!this.levelRewardsClaimed[i]) count++;
+    }
+    return count;
+  }
+
   // === Progress ===
   getProgress(plot) {
     if (plot.status !== 'growing' || !plot.harvestAt) return 0;
@@ -1264,6 +1292,7 @@ class GameState {
       dailyObjectives: this.dailyObjectives,
       achievements: this.achievements,
       loginRewards: this.loginRewards,
+      levelRewardsClaimed: this.levelRewardsClaimed,
     });
     this.notify();
   }
