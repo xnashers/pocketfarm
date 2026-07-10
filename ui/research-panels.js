@@ -345,7 +345,7 @@ export function createWeatherDisplay() {
     container.innerHTML = `
       <div class="flex items-center gap-2 flex-1 min-w-0">
         <span class="text-2xl flex-shrink-0">${weather.emoji}</span>
-        <div class="min-w-0"><div class="font-semibold text-white text-sm">${weather.name}</div><div class="text-xs text-purple-400">${weather.mutationEmoji} ${weather.mutation} · x${weather.multiplier} ${forecastHTML} ${bonusStr}</div></div>
+        <div class="min-w-0"><div class="font-semibold text-white text-sm">${weather.name}</div><div class="text-xs text-purple-400">${weather.mutationEmoji} ${weather.mutation} ${forecastHTML} ${bonusStr}</div></div>
       </div>
       <div class="text-right flex-shrink-0"><div class="text-xs text-slate-500 tabular-nums">⏱ ${formatCountdown(remaining)}</div>${isRareActive ? '<div class="text-[10px] text-amber-400">🌟 Rare Boost</div>' : ''}</div>`;
   }

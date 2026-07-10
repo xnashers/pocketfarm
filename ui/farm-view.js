@@ -1,5 +1,5 @@
 import { gameState } from '../state.js';
-import { SPRINKLERS } from '../data/game-data.js';
+import { SPRINKLERS, PETS } from '../data/game-data.js';
 import { createWeatherDisplay } from './research-panels.js';
 import { showToast, playSound } from './audio-ui.js';
 import { spawnHarvestAnimation } from './harvest-anim.js';
@@ -82,13 +82,6 @@ function formatGrowTime(seconds) {
   return `${secs}s`;
 }
 
-function formatMs(ms) {
-  const totalSecs = Math.ceil(ms / 1000);
-  const mins = Math.floor(totalSecs / 60);
-  const secs = totalSecs % 60;
-  return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
-}
-
 function createSeedPopup() {
   const overlay = document.createElement('div');
   overlay.className = 'fixed inset-0 z-50 hidden';
@@ -149,6 +142,9 @@ function createSeedPopup() {
             if (result && result.success) {
               playSound('plant');
               showToast(t('app.toast.planted', { crop: crop.emoji }), 'success');
+              if (result.mouseSavedSeed) {
+                setTimeout(() => showToast('🐁 Mouse saved a seed!', 'success'), 400);
+              }
             } else if (result && result.reason === 'weather_blocked') {
               showToast(result.message, 'warning');
             }
@@ -178,38 +174,63 @@ function createSeedPopup() {
 
 function createSprinklerBar() {
   const bar = document.createElement('div');
-  bar.className = 'flex items-center gap-2 px-3 py-2 mb-3 rounded-xl border transition-all duration-300';
+  bar.className = 'flex items-center gap-2 px-3 py-2 mb-3 rounded-xl border transition-all duration-300 bg-slate-800/40 border-white/5';
   bar.id = 'sprinkler-bar';
 
   function render() {
-    const active = gameState.getActiveSprinkler();
+    const invCount = gameState.gear.sprinklerInventory.length;
+    const growingCount = gameState.plots.filter(p => p.status === 'growing').length;
 
-    if (!active) {
-      const invCount = gameState.gear.sprinklerInventory.length;
-      const invText = invCount > 0
-        ? ` · 💦 <strong class="text-blue-400">${invCount} ready</strong> — Inventory ▶ Use`
-        : ' · Buy in <strong class="text-blue-400">Gear</strong> shop';
+    if (invCount > 0) {
+      // Group by tier for summary
+      const byTier = {};
+      for (const item of gameState.gear.sprinklerInventory) {
+        byTier[item.tier] = (byTier[item.tier] || 0) + 1;
+      }
+      const summary = Object.entries(byTier).map(([tier, count]) => {
+        const sp = SPRINKLERS.find(s => s.tier === parseInt(tier));
+        return sp ? `${sp.emoji}${count}` : '';
+      }).join(' ');
+
+      const showSprinkleAll = growingCount > 0;
+
+      bar.className = 'flex items-center gap-2 px-3 py-2.5 mb-3 rounded-xl border transition-all duration-300 bg-blue-900/20 border-blue-500/30';
+      bar.innerHTML = `
+        <span class="text-base flex-shrink-0">💧</span>
+        <div class="flex-1 min-w-0">
+          <span class="text-xs font-semibold text-blue-300">Sprinklers: ${summary}</span>
+          ${!showSprinkleAll ? '<span class="text-xs text-slate-500"> · Plant & grow crops first!</span>' : ''}
+        </div>
+        ${showSprinkleAll ? '<button type="button" id="sprinkle-all-btn" class="px-3 py-1.5 bg-blue-500 hover:bg-blue-400 text-white text-xs font-bold rounded-lg transition active:scale-95 shadow-md">💧 Sprinkle All</button>' : ''}
+      `;
+
+      if (showSprinkleAll) {
+        const btn = bar.querySelector('#sprinkle-all-btn');
+        if (btn) {
+          btn.addEventListener('click', () => {
+            let applied = 0;
+            const tiers = [...new Set(gameState.gear.sprinklerInventory.map(s => s.tier))].sort();
+            const bestTier = tiers[tiers.length - 1];
+            for (let i = 0; i < gameState.plots.length; i++) {
+              if (gameState.plots[i].status === 'growing' && gameState.gear.sprinklerInventory.length > 0) {
+                if (gameState.applySprinklerToPlot(i, bestTier)) applied++;
+              }
+            }
+            if (applied > 0) {
+              const sp = SPRINKLERS.find(s => s.tier === bestTier);
+              playSound('buy');
+              showToast(`💧 Sprinkled ${applied} crops! +${Math.round((sp?.weightBonus || 0) * 100)}% weight each!`, 'success');
+            } else {
+              showToast('No growing crops to sprinkle', 'info');
+            }
+          });
+        }
+      }
+    } else {
       bar.className = 'flex items-center gap-2 px-3 py-2 mb-3 rounded-xl border transition-all duration-300 bg-slate-800/40 border-white/5';
       bar.innerHTML = `
         <span class="text-base opacity-50">💧</span>
-        <span class="text-xs text-slate-500">No sprinkler${invText}</span>
-      `;
-    } else {
-      const sp = SPRINKLERS.find(s => s.tier === active.tier);
-      if (!sp) return;
-      const bonusPct = Math.round(sp.speedBonus * 100);
-      const doubleStr = sp.doubleHarvestBonus ? ` · +${Math.round(sp.doubleHarvestBonus * 100)}% double` : '';
-      const remaining = gameState.getActiveSprinklerTimeRemaining();
-      bar.className = 'flex items-center gap-2 px-3 py-2 mb-3 rounded-xl border transition-all duration-300 bg-blue-900/30 border-blue-500/40';
-      bar.innerHTML = `
-        <span class="text-base flex-shrink-0">${sp.emoji}</span>
-        <div class="flex-1 min-w-0">
-          <span class="text-xs font-semibold text-blue-300">${sp.name} Active</span>
-          <span class="text-xs text-green-400"> · ⚡+${bonusPct}% speed${doubleStr}</span>
-        </div>
-        <div class="text-right flex-shrink-0">
-          <div class="text-xs text-green-400 font-bold sprinkler-countdown">${formatMs(remaining)}</div>
-        </div>
+        <span class="text-xs text-slate-500">No sprinklers · Buy in <strong class="text-blue-400">Shop → Gear</strong></span>
       `;
     }
   }
@@ -298,6 +319,7 @@ export function createFarmView() {
       const remaining = gameState.getRemainingMs(plot);
       const isReady = plot.status === 'ready' || progress >= 1;
       const mutations = plot.mutations || [];
+      const sprinklerBonus = plot.sprinklerBonus || 0;
 
       if (isReady) {
         const glowClass = mutations.length > 0 ? 'mutation-glow' : 'ready-glow';
@@ -307,16 +329,20 @@ export function createFarmView() {
           ? `<div class="flex flex-wrap gap-1 mt-1 justify-center">${mutations.map(m =>
               `<span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
                 m.isSecret ? 'bg-purple-600/40 text-purple-200 border border-purple-400/30' : 'bg-amber-600/30 text-amber-200 border border-amber-400/20'
-              }">${m.emoji} ${m.name}${m.isSecret ? ` x${m.bonusMultiplier}` : ` x${m.multiplier}`}</span>`
+              }">${m.emoji} ${m.name}</span>`
             ).join('')}</div>`
+          : '';
+
+        const sprinklerBadge = sprinklerBonus > 0
+          ? `<span class="text-[10px] text-blue-400 font-bold">💧 +${Math.round(sprinklerBonus * 100)}% weight</span>`
           : '';
 
         card.innerHTML = `
           <div class="flex flex-col items-center justify-center py-5 px-3 gap-1">
             <span class="text-3xl">${crop.emoji}</span>
             ${mutationBadges}
+            ${sprinklerBadge}
             <span class="text-xs font-bold text-green-300 animate-pulse">${t('app.farm.ready')}</span>
-
           </div>
         `;
         card.addEventListener('click', () => {
@@ -329,10 +355,8 @@ export function createFarmView() {
         });
       } else {
         const canFertilize = !plot.fertilized && gameState.gear.fertilizerCount > 0;
-        const activeSp = gameState.getActiveSprinkler();
-        const spData = activeSp ? SPRINKLERS.find(s => s.tier === activeSp.tier) : null;
-        const spBonusPct = spData ? Math.round(spData.speedBonus * 100) : 0;
-        card.className += activeSp ? ' border-blue-500/30 bg-blue-900/10' : ' border-slate-600/40 bg-slate-800/30';
+        const canSprinkler = gameState.gear.sprinklerInventory.length > 0;
+        card.className += sprinklerBonus > 0 ? ' border-blue-500/30 bg-blue-900/10' : ' border-slate-600/40 bg-slate-800/30';
 
         let actionBtns = '';
         if (canFertilize) {
@@ -340,9 +364,12 @@ export function createFarmView() {
         } else if (plot.fertilized) {
           actionBtns += '<span class="mt-1 text-xs text-amber-400/60">💩 Fertilized</span>';
         }
+        if (canSprinkler) {
+          actionBtns += `<button class="mt-1 px-3 py-2 bg-blue-500 hover:bg-blue-400 text-white rounded-xl text-xs font-bold transition sp-btn active:scale-95 shadow-lg shadow-blue-500/20">💧 Sprinkle${sprinklerBonus > 0 ? ` (${Math.round(sprinklerBonus * 100)}%)` : ''}</button>`;
+        }
 
-        const sprinklerBadge = activeSp
-          ? `<span class="text-[10px] text-blue-400 font-bold">⚡+${spBonusPct}% speed</span>`
+        const sprinklerBadge = sprinklerBonus > 0
+          ? `<span class="text-[10px] text-blue-400 font-bold">💧 +${Math.round(sprinklerBonus * 100)}% weight</span>`
           : '';
 
         const pct = Math.round(progress * 100);
@@ -357,7 +384,7 @@ export function createFarmView() {
             </div>
             ${plot.fertilized ? '<span class="text-xs text-amber-400">💩 +weight</span>' : ''}
             ${sprinklerBadge}
-            <div class="flex gap-1">${actionBtns}</div>
+            <div class="flex gap-1 flex-wrap justify-center">${actionBtns}</div>
           </div>
         `;
 
@@ -367,6 +394,19 @@ export function createFarmView() {
             if (gameState.fertilizeCrop(index)) {
               playSound('click');
               showToast('💩 Fertilized! +20-50% weight', 'success');
+            }
+          });
+        }
+        if (canSprinkler) {
+          card.querySelector('.sp-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            const tiers = [...new Set(gameState.gear.sprinklerInventory.map(s => s.tier))].sort();
+            const bestTier = tiers[tiers.length - 1];
+            if (gameState.applySprinklerToPlot(index, bestTier)) {
+              const sp = SPRINKLERS.find(s => s.tier === bestTier);
+              playSound('buy');
+              showToast(`${sp?.emoji || '💧'} +${Math.round((sp?.weightBonus || 0) * 100)}% weight! Stack more for bigger crops!`, 'success');
+              render();
             }
           });
         }
@@ -438,6 +478,29 @@ export function createFarmView() {
         : `${t('app.toast.harvested', { crop: result.crop.emoji, xp: result.crop.xp * result.quantity })}`;
       showToast(msg, result.isDouble ? 'gold' : 'success');
 
+      // Pet toasts — level ups
+      if (result.petLevelUp && result.petLevelUp.length > 0) {
+        for (let pi = 0; pi < result.petLevelUp.length; pi++) {
+          const lu = result.petLevelUp[pi];
+          const pet = PETS.find(p => p.id === lu.petId);
+          setTimeout(() => {
+            playSound('levelup');
+            showToast(`${pet?.emoji || '🐾'} ${pet?.name || 'Pet'} leveled up to Lv.${lu.level}!`, 'gold');
+          }, 600 + pi * 500);
+        }
+      }
+      if (result.squirrelResult && result.squirrelResult.length > 0) {
+        for (let si = 0; si < result.squirrelResult.length; si++) {
+          const { crop: seedCrop, qty } = result.squirrelResult[si];
+          setTimeout(() => showToast(`🐿️ Squirrel found ${seedCrop.emoji} x${qty}!`, 'success'), 400 + si * 300);
+        }
+      }
+      if (result.foxResult && result.foxResult.length > 0) {
+        for (let fi = 0; fi < result.foxResult.length; fi++) {
+          setTimeout(() => showToast(`🦊 Fox discovered a ${result.foxResult[fi].emoji} seed!`, 'success'), 500 + fi * 300);
+        }
+      }
+
       // Check achievements after harvest
       const newAchs = gameState.checkAchievements();
       for (const ach of newAchs) {
@@ -460,15 +523,10 @@ export function createFarmView() {
   function updateTimers() {
     let needsFullRender = false;
 
-    // Update sprinkler countdown
-    const sprinklerCountdownEl = container.querySelector('.sprinkler-countdown');
-    if (sprinklerCountdownEl) {
-      const remaining = gameState.getActiveSprinklerTimeRemaining();
-      if (remaining <= 0) {
-        needsFullRender = true;
-      } else {
-        sprinklerCountdownEl.textContent = formatMs(remaining);
-      }
+    // Dog pet passive peso tick
+    const dogResult = gameState.dogPassiveTick();
+    if (dogResult.earned > 0) {
+      showToast(`🐕 Dog found ₱${dogResult.earned}!`, 'success');
     }
 
     const cards = grid.querySelectorAll('[data-plot-index]');

@@ -38,15 +38,28 @@ export function createObjectivesView() {
           : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
       }`;
       btn.textContent = tab.label;
+
+      // Compute badge count per tab
+      let badgeCount = 0;
       if (tab.id === 'levels') {
-        const unclaimed = gameState.getUnclaimedLevelCount();
-        if (unclaimed > 0) {
-          const badge = document.createElement('span');
-          badge.className = 'ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-bold';
-          badge.textContent = unclaimed > 9 ? '9+' : unclaimed;
-          btn.appendChild(badge);
-        }
+        badgeCount = gameState.getUnclaimedLevelCount();
+      } else if (tab.id === 'objectives') {
+        const progress = gameState.getDailyProgress();
+        const objs = progress.objectives || [];
+        const unclaimedObj = objs.filter(o => o.completed && !o.claimed).length;
+        const chestReady = objs.every(o => o.completed && o.claimed) && !progress.chestClaimed ? 1 : 0;
+        badgeCount = unclaimedObj + chestReady;
+      } else if (tab.id === 'achievements') {
+        badgeCount = Object.values(gameState.achievements).filter(a => a && !a.claimed).length;
       }
+
+      if (badgeCount > 0) {
+        const badge = document.createElement('span');
+        badge.className = 'ml-1 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[9px] font-bold';
+        badge.textContent = badgeCount > 9 ? '9+' : badgeCount;
+        btn.appendChild(badge);
+      }
+
       btn.onclick = () => { activeTab = tab.id; expandedLevel = null; render(); };
       tabRow.appendChild(btn);
     }

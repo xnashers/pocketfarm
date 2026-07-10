@@ -196,3 +196,22 @@ export function showToast(message, type = 'success') {
     setTimeout(() => el.remove(), 300);
   }, 2500);
 }
+
+export function showBigToast(message, type = 'gold') {
+  if (!container) initToast();
+  const el = document.createElement('div');
+  const colors = {
+    success: 'bg-green-600 text-white border-green-400',
+    error: 'bg-red-600 text-white border-red-400',
+    info: 'bg-blue-600 text-white border-blue-400',
+    gold: 'bg-gradient-to-r from-yellow-500 to-amber-500 text-slate-900 border-yellow-300',
+    warning: 'bg-amber-600 text-white border-amber-400',
+  };
+  el.className = `${colors[type] || colors.gold} px-5 py-3 rounded-2xl text-base font-bold shadow-2xl border-2 pointer-events-auto animate-fade-in flex items-center gap-2`;
+  el.innerHTML = `<span class="text-xl">${message}</span>`;
+  container.appendChild(el);
+  setTimeout(() => {
+    el.classList.add('animate-fade-out');
+    setTimeout(() => el.remove(), 300);
+  }, 3500);
+}

@@ -73,7 +73,7 @@ function proceedAfterSplash(app) {
     const welcome = createWelcomeScreen(async (name) => {
       const result = await gameState.setFarmName(name);
       if (!result.success) {
-        showToast(t('app.toast.not_enough_peso'), 'error');
+        showToast('Please enter a valid name', 'error');
         return;
       }
       gameState.isNewPlayer = false;
@@ -123,7 +123,7 @@ function startGame(app) {
 
   gameState.on('weatherChange', (weather) => {
     playSound('weather');
-    showToast(`${weather.emoji} ${weather.name} — ${weather.mutationEmoji} ${weather.mutation} (x${weather.multiplier})`, 'info');
+    showToast(`${weather.emoji} ${weather.name} — ${weather.mutationEmoji} ${weather.mutation} (+₱${weather.priceBonus || 0})`, 'info');
     // Check weather achievements
     const newAchs = gameState.checkAchievements();
     for (const ach of newAchs) {

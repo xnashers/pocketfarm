@@ -1,7 +1,7 @@
 import { gameState } from '../state.js';
+import { ACHIEVEMENTS, TITLE_DISPLAY } from '../data/game-data.js';
 import { getStoredUsername, logout } from '../api-client.js';
 import { showToast } from './audio-ui.js';
-import { TITLE_DISPLAY } from '../data/game-data.js';
 
 const t = (key) => window.miniappI18n?.t(key) ?? key;
 
@@ -53,10 +53,12 @@ export function createStatsBar() {
   });
 
   function update() {
-    const { level, xp, peso } = gameState.player;
+    const level = gameState.player.level || 1;
+    const xp = gameState.player.xp || 0;
+    const peso = gameState.player.peso || 0;
     bar.querySelector('#stat-level').textContent = level;
-    bar.querySelector('#stat-peso').textContent = peso.toLocaleString();
-    bar.querySelector('#stat-xp').textContent = xp.toLocaleString();
+    bar.querySelector('#stat-peso').textContent = Number(peso).toLocaleString();
+    bar.querySelector('#stat-xp').textContent = Number(xp).toLocaleString();
     bar.querySelector('#farm-name-display').textContent = gameState.getDisplayName();
     bar.querySelector('#level-title').textContent = gameState.getLevelTitle();
     bar.querySelector('#stat-tokens').textContent = gameState.farmerTokens;
@@ -175,6 +177,30 @@ function showProfilePopup() {
 // BOTTOM TAB NAVIGATION
 // ═══════════════════════════════════════════
 
+function getNotificationCount() {
+  let count = 0;
+
+  // Unclaimed daily objectives (completed but not claimed)
+  const progress = gameState.getDailyProgress();
+  for (const obj of progress.objectives) {
+    if (obj.completed && !obj.claimed) count++;
+  }
+  // Daily chest ready
+  const allClaimed = progress.objectives.every(o => o.completed && o.claimed);
+  if (allClaimed && !progress.chestClaimed) count++;
+
+  // Unclaimed achievements
+  for (const ach of ACHIEVEMENTS) {
+    const entry = gameState.achievements[ach.id];
+    if (entry && !entry.claimed) count++;
+  }
+
+  // Unclaimed level rewards
+  count += gameState.getUnclaimedLevelCount();
+
+  return count;
+}
+
 const TABS = [
   { id: 'farm', icon: '🌾', labelKey: 'app.tabs.farm' },
   { id: 'shop', icon: '🏪', labelKey: 'app.tabs.shop' },
@@ -199,6 +225,12 @@ export function createTabs(onChange) {
     btn.className = 'flex flex-col items-center gap-0.5 px-1 py-1 rounded-lg transition text-[9px] min-w-[36px]';
     btn.innerHTML = `<span class="text-lg leading-none">${tab.icon}</span><span class="leading-tight whitespace-nowrap">${t(tab.labelKey)}</span>`;
 
+    // Add notification badge placeholder for objectives tab
+    if (tab.id === 'objectives') {
+      btn.innerHTML += '<span id="progress-badge" class="hidden absolute -top-0.5 -right-0.5 min-w-[16px] h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center px-1 shadow-lg shadow-red-500/40"></span>';
+      btn.classList.add('relative');
+    }
+
     btn.addEventListener('click', () => {
       active = tab.id;
       nav.querySelectorAll('button').forEach(b => { b.setAttribute('aria-selected', 'false'); b.classList.remove('text-green-400'); b.classList.add('text-slate-400'); });
@@ -212,5 +244,25 @@ export function createTabs(onChange) {
     else btn.classList.add('text-slate-400');
     nav.appendChild(btn);
   }
+
+  // Update notification badge
+  function updateBadge() {
+    const badge = nav.querySelector('#progress-badge');
+    if (!badge) return;
+    const count = getNotificationCount();
+    if (count > 0) {
+      badge.textContent = count > 9 ? '9+' : count;
+      badge.classList.remove('hidden');
+      badge.classList.add('flex');
+    } else {
+      badge.classList.add('hidden');
+      badge.classList.remove('flex');
+    }
+  }
+
+  // Subscribe to game state changes
+  gameState.subscribe(updateBadge);
+  updateBadge();
+
   return nav;
 }

@@ -1,4 +1,4 @@
-import { CROPS, LEVELS, getLevelReward, SPRINKLERS, WEATHER_TYPES, SECRET_MUTATIONS, WEATHER_CHANGE_INTERVAL, MUTATION_CHANCE, RESEARCH_LAB, MUTATION_LAB, WEATHER_CENTER, GENETICS_TIERS, MASTERY_CONFIG, getResearchCost, getMutationLabCost, getGeneticsCost, getMasteryCost, generateDailyObjectives, CHEST_REWARDS, CRATE_REWARDS, rollReward, ACHIEVEMENTS, LOGIN_CYCLE, MONTHLY_MILESTONES } from './data/game-data.js';
+import { CROPS, LEVELS, getLevelReward, SPRINKLERS, WEATHER_TYPES, SECRET_MUTATIONS, WEATHER_CHANGE_INTERVAL, MUTATION_CHANCE, RESEARCH_LAB, MUTATION_LAB, WEATHER_CENTER, GENETICS_TIERS, MASTERY_CONFIG, getResearchCost, getMutationLabCost, getGeneticsCost, getMasteryCost, generateDailyObjectives, CHEST_REWARDS, CRATE_REWARDS, rollReward, ACHIEVEMENTS, LOGIN_CYCLE, MONTHLY_MILESTONES, PETS, getPetLevelXP, getPetLevelEffectiveness, PET_SECONDARY_PASSIVE } from './data/game-data.js';
 import { loadGame, saveGame } from './storage.js';
 
 class GameState {
@@ -10,7 +10,6 @@ class GameState {
     this.gear = {
       fertilizerCount: 0,
       sprinklerInventory: [],
-      activeSprinkler: null,
     };
     this.boughtPlots = 0;
     this.isNewPlayer = false;
@@ -52,7 +51,11 @@ class GameState {
     this.pendingLoginReward = null;
     this.levelRewardsClaimed = {};
     this.favorites = [];
-    this.renameCount = 0;
+    this.petInventory = [];       // Array of { uid, petId, level, xp }
+    this.equippedPetUIDs = [];    // UIDs of equipped pets (max = petSlots)
+    this.petSlots = 1;            // Start with 1 slot, expandable to 5
+    this._nextPetUID = 1;
+    this.lastDogPesoTick = 0;
   }
 
   async init() {
@@ -63,12 +66,87 @@ class GameState {
         this.player.peso = this.player.coins;
         delete this.player.coins;
       }
+      // Fix corrupted values from NaN bug
+      if (!Number.isFinite(this.player.peso)) this.player.peso = 0;
+      if (!Number.isFinite(this.player.xp)) this.player.xp = 0;
+      if (!this.player.level || this.player.level < 1) this.player.level = 1;
       this.plots = (saved.plots || []).map(p => ({
         ...p,
         mutations: p.mutations || [],
         fertilized: p.fertilized || false,
         harvestCount: p.harvestCount || 0,
+        sprinklerBonus: p.sprinklerBonus || 0,
+      })).map(p => ({
+        // Migrate old mutation format: multiplier → priceBonus
+        ...p,
+        mutations: (p.mutations || []).map(m => {
+          if (m && m.multiplier && !m.priceBonus) {
+            // Look up the correct priceBonus from weather/secret data
+            const wt = WEATHER_TYPES.find(w => w.id === m.weatherId);
+            const sm = SECRET_MUTATIONS.find(s => s.id === m.weatherId);
+            const priceBonus = wt ? wt.priceBonus : sm ? sm.priceBonus : 0;
+            const { multiplier, ...rest } = m;
+            return { ...rest, priceBonus };
+          }
+          return m;
+        }),
       }));
+      // Migrate old crop IDs → new crop IDs (v2 crop overhaul)
+      const CROP_ID_MIGRATION = {
+        kangkong: 'carrot', pechay: 'lettuce', mustasa: 'potato',
+        sitaw: 'strawberry', talong: 'eggplant',
+        kamatis: 'tomato', kalabasa: 'watermelon', mais: 'corn',
+        palay: 'rice', ampalaya: 'cucumber',
+        sibuyas: 'apple', bawang: 'greenapple', kamote: 'sweetpotato',
+        gabi: 'pear',
+        mangga: 'golden_sunflower', calamansi: 'crystal_rose',
+        dragonfruit: 'grapes', durian: 'mushroom', mangosteen: 'pineapple',
+      };
+      const migrateId = (id) => CROP_ID_MIGRATION[id] || id;
+      for (const plot of this.plots) {
+        if (plot.cropId && CROP_ID_MIGRATION[plot.cropId]) {
+          plot.cropId = CROP_ID_MIGRATION[plot.cropId];
+        }
+      }
+      // Migrate seeds
+      const migratedSeeds = {};
+      for (const [cropId, count] of Object.entries(this.seeds)) {
+        const newId = migrateId(cropId);
+        migratedSeeds[newId] = (migratedSeeds[newId] || 0) + count;
+      }
+      this.seeds = migratedSeeds;
+      // Migrate cropGenetics
+      const migratedGenetics = {};
+      for (const [cropId, tier] of Object.entries(this.cropGenetics || {})) {
+        migratedGenetics[migrateId(cropId)] = tier;
+      }
+      this.cropGenetics = migratedGenetics;
+      // Migrate cropMastery
+      const migratedMastery = {};
+      for (const [cropId, level] of Object.entries(this.cropMastery || {})) {
+        migratedMastery[migrateId(cropId)] = level;
+      }
+      this.cropMastery = migratedMastery;
+      // Migrate inventory keys
+      if (saved.inventory) {
+        const migratedInv = {};
+        for (const [cropId, value] of Object.entries(saved.inventory)) {
+          migratedInv[migrateId(cropId)] = value;
+        }
+        saved.inventory = migratedInv;
+      }
+      // Migrate stats.cropsHarvested keys
+      if (saved.stats?.cropsHarvested) {
+        const migratedHarvested = {};
+        for (const [cropId, count] of Object.entries(saved.stats.cropsHarvested)) {
+          migratedHarvested[migrateId(cropId)] = (migratedHarvested[migrateId(cropId)] || 0) + count;
+        }
+        saved.stats.cropsHarvested = migratedHarvested;
+      }
+      // Migrate dailyStats.differentCrops
+      if (saved.dailyStats?.differentCrops) {
+        saved.dailyStats.differentCrops = saved.dailyStats.differentCrops.map(id => migrateId(id));
+      }
       for (const plot of this.plots) {
         if (plot.cropId && !this.getCrop(plot.cropId)) {
           plot.status = 'empty';
@@ -78,6 +156,7 @@ class GameState {
           plot.mutations = [];
           plot.fertilized = false;
           plot.harvestCount = 0;
+          plot.sprinklerBonus = 0;
         }
       }
       this.seeds = saved.seeds || {};
@@ -91,10 +170,9 @@ class GameState {
         } else if (saved.gear.sprinklerLevel && saved.gear.sprinklerLevel > 0) {
           const sp = SPRINKLERS.find(s => s.tier === saved.gear.sprinklerLevel);
           if (sp) {
-            this.gear.sprinklerInventory = [{ tier: sp.tier, duration: sp.duration }];
+            this.gear.sprinklerInventory = [{ tier: sp.tier }];
           }
         }
-        this.gear.activeSprinkler = saved.gear.activeSprinkler || null;
       }
       this.boughtPlots = saved.boughtPlots || 0;
       this.currentWeather = saved.currentWeather || null;
@@ -140,7 +218,30 @@ class GameState {
       this.loginRewards = saved.loginRewards || { lastLoginDate: '', streak: 0, totalLoginDays: 0, monthlyClaimed: {} };
       this.levelRewardsClaimed = saved.levelRewardsClaimed || {};
       this.favorites = saved.favorites || [];
-      this.renameCount = saved.renameCount || 0;
+      // Pet migration — convert old flat format to new instance inventory
+      this.petSlots = saved.petSlots || 1;
+      this.petInventory = [];
+      this.equippedPetUIDs = [];
+      this._nextPetUID = 1;
+      if (saved.petInventory && Array.isArray(saved.petInventory)) {
+        this.petInventory = saved.petInventory;
+        this.equippedPetUIDs = (saved.equippedPetUIDs || []).filter(uid =>
+          this.petInventory.some(p => p.uid === uid));
+        this._nextPetUID = saved._nextPetUID || (saved.petInventory.length + 1);
+      } else if (saved.pets) {
+        // Migrate old flat pets: { dog: level } → individual instances
+        const oldXP = saved.petXP || {};
+        for (const [petId, level] of Object.entries(saved.pets)) {
+          if (level > 0) {
+            const uid = `pet_${this._nextPetUID++}`;
+            this.petInventory.push({ uid, petId, level, xp: oldXP[petId] || 0 });
+            if (saved.petEquip === petId && this.equippedPetUIDs.length < this.petSlots) {
+              this.equippedPetUIDs.push(uid);
+            }
+          }
+        }
+      }
+      this.lastDogPesoTick = saved.lastDogPesoTick || 0;
     } else {
       this.isNewPlayer = true;
       this._giveStarterSeeds();
@@ -156,7 +257,187 @@ class GameState {
   }
 
   _giveStarterSeeds() {
-    this.seeds = { kangkong: 5, pechay: 3, mustasa: 2 };
+    this.seeds = { carrot: 5, lettuce: 3, potato: 2 };
+  }
+
+  _initPets() {
+    this.petInventory = [];
+    this.equippedPetUIDs = [];
+    this.petSlots = 1;
+    this._nextPetUID = 1;
+    this.lastDogPesoTick = 0;
+  }
+
+  // === Pet System (Multi-Instance) ===
+  getPet(id) {
+    return PETS.find(p => p.id === id);
+  }
+
+  getPetSlotExpansionCost() {
+    if (this.petSlots >= 5) return null;
+    return 10000 * this.petSlots;
+  }
+
+  expandPetSlots() {
+    if (this.petSlots >= 5) return { success: false, reason: 'max' };
+    const cost = this.getPetSlotExpansionCost();
+    if (this.player.peso < cost) return { success: false, reason: 'peso' };
+    this.player.peso -= cost;
+    this.petSlots++;
+    this.save();
+    return { success: true, slots: this.petSlots };
+  }
+
+  buyPet(petId) {
+    const pet = this.getPet(petId);
+    if (!pet) return { success: false, reason: 'invalid' };
+    if (this.player.peso < pet.cost) return { success: false, reason: 'peso' };
+    this.player.peso -= pet.cost;
+    const uid = `pet_${this._nextPetUID++}`;
+    const instance = { uid, petId, level: 1, xp: 0 };
+    this.petInventory.push(instance);
+    this.save();
+    return { success: true, uid, instance };
+  }
+
+  getPetInstance(uid) {
+    return this.petInventory.find(p => p.uid === uid);
+  }
+
+  getEquippedPets() {
+    return this.equippedPetUIDs
+      .map(uid => this.getPetInstance(uid))
+      .filter(Boolean);
+  }
+
+  getEquippedCountByType(petId) {
+    return this.getEquippedPets().filter(p => p.petId === petId).length;
+  }
+
+  equipPet(uid) {
+    const instance = this.getPetInstance(uid);
+    if (!instance) return { success: false, reason: 'invalid' };
+    if (this.equippedPetUIDs.includes(uid)) return { success: false, reason: 'already_equipped' };
+    if (this.equippedPetUIDs.length >= this.petSlots) return { success: false, reason: 'full' };
+    this.equippedPetUIDs.push(uid);
+    this.save();
+    return { success: true };
+  }
+
+  unequipPet(uid) {
+    const idx = this.equippedPetUIDs.indexOf(uid);
+    if (idx === -1) return false;
+    this.equippedPetUIDs.splice(idx, 1);
+    this.save();
+    return true;
+  }
+
+  addPetXP(amount) {
+    const levelUps = [];
+    for (const uid of this.equippedPetUIDs) {
+      const inst = this.getPetInstance(uid);
+      if (!inst || inst.level >= 10) continue;
+      inst.xp += amount;
+      const needed = getPetLevelXP(inst.level);
+      if (inst.xp >= needed) {
+        inst.xp -= needed;
+        inst.level++;
+        levelUps.push({ uid, petId: inst.petId, level: inst.level });
+      }
+    }
+    if (levelUps.length > 0) this.save();
+    return levelUps;
+  }
+
+  dogPassiveTick() {
+    const now = Date.now();
+    if (now - this.lastDogPesoTick < 60000) return { earned: 0 };
+    const dogs = this.getEquippedPets().filter(p => p.petId === 'dog');
+    if (dogs.length === 0) return { earned: 0 };
+    let totalEarned = 0;
+    for (const dog of dogs) {
+      const pet = this.getPet('dog');
+      const effective = getPetLevelEffectiveness(dog.level);
+      totalEarned += Math.floor(pet.ability.base * effective);
+    }
+    if (totalEarned > 0) {
+      this.lastDogPesoTick = now;
+      this.player.peso += totalEarned;
+      this.save();
+    }
+    return { earned: totalEarned };
+  }
+
+  _applyCatSellDouble(basePrice) {
+    const cats = this.getEquippedPets().filter(p => p.petId === 'cat');
+    if (cats.length === 0) return { price: basePrice, doubled: false };
+    let price = basePrice;
+    let doubled = false;
+    for (const cat of cats) {
+      const pet = this.getPet('cat');
+      const effective = getPetLevelEffectiveness(cat.level);
+      const chance = Math.min(pet.ability.maxChance, pet.ability.baseChance * effective);
+      if (Math.random() < chance) { price *= 2; doubled = true; }
+    }
+    return { price, doubled };
+  }
+
+  _applyFoxFindSeeds(crop) {
+    const foxes = this.getEquippedPets().filter(p => p.petId === 'fox');
+    if (foxes.length === 0) return null;
+    const results = [];
+    for (const fox of foxes) {
+      const pet = this.getPet('fox');
+      const effective = getPetLevelEffectiveness(fox.level);
+      if (Math.random() < pet.ability.chance * effective || fox.level >= 10) {
+        const pool = Math.random() < pet.ability.premiumChance * effective
+          ? CROPS.filter(c => c.category === 'premium')
+          : CROPS.filter(c => c.category === 'starter' || c.category === 'intermediate');
+        const found = pool[Math.floor(Math.random() * pool.length)];
+        if (found) {
+          this.seeds[found.id] = (this.seeds[found.id] || 0) + 1;
+          results.push(found);
+        }
+      }
+    }
+    return results.length > 0 ? results : null;
+  }
+
+  _applyMouseSeedSave(cropId) {
+    const mice = this.getEquippedPets().filter(p => p.petId === 'mouse');
+    if (mice.length === 0) return false;
+    const crop = this.getCrop(cropId);
+    const isStarter = crop && crop.category === 'starter';
+    for (const mouse of mice) {
+      const pet = this.getPet('mouse');
+      const effective = getPetLevelEffectiveness(mouse.level);
+      let chance = Math.min(pet.ability.maxChance, pet.ability.baseChance * effective);
+      if (mouse.level >= 10 && isStarter) chance *= 2;
+      if (Math.random() < chance) return true;
+    }
+    return false;
+  }
+
+  _applySquirrelBonusSeeds(crop) {
+    const squirrels = this.getEquippedPets().filter(p => p.petId === 'squirrel');
+    if (squirrels.length === 0) return null;
+    const results = [];
+    for (const squirrel of squirrels) {
+      const pet = this.getPet('squirrel');
+      const effective = getPetLevelEffectiveness(squirrel.level);
+      if (Math.random() >= pet.ability.chance * effective) continue;
+      const qty = pet.ability.minQty + Math.floor(Math.random() * (pet.ability.maxQty - pet.ability.minQty + 1));
+      const rareChance = squirrel.level >= 10 ? 0.5 : 0.15;
+      const pool = Math.random() < rareChance
+        ? CROPS.filter(c => c.category === 'advanced' || c.category === 'premium')
+        : CROPS.filter(c => c.category === 'starter' || c.category === 'intermediate');
+      const seedCrop = pool[Math.floor(Math.random() * pool.length)];
+      if (seedCrop) {
+        this.seeds[seedCrop.id] = (this.seeds[seedCrop.id] || 0) + qty;
+        results.push({ crop: seedCrop, qty });
+      }
+    }
+    return results.length > 0 ? results : null;
   }
 
   _migrateInventory(inv) {
@@ -167,6 +448,17 @@ class GameState {
         const filtered = value.filter(item => {
           if (item && typeof item === 'object' && typeof item.weight === 'number' && item.weight > 0) {
             if (!item.mutations) item.mutations = [];
+            // Migrate old mutation format: multiplier → priceBonus
+            item.mutations = item.mutations.map(m => {
+              if (m && m.multiplier && !m.priceBonus) {
+                const wt = WEATHER_TYPES.find(w => w.id === m.weatherId);
+                const sm = SECRET_MUTATIONS.find(s => s.id === m.weatherId);
+                const priceBonus = wt ? wt.priceBonus : sm ? sm.priceBonus : 0;
+                const { multiplier, ...rest } = m;
+                return { ...rest, priceBonus };
+              }
+              return m;
+            });
             return true;
           }
           if (typeof item === 'number' && item > 0) return true;
@@ -189,7 +481,6 @@ class GameState {
       if (entry && typeof entry.stockRemaining === 'number') {
         migrated[cropId] = entry; // Already new format
       } else if (entry && typeof entry.available === 'boolean') {
-        // Old format: convert to stock-based
         const crop = this.getCrop(cropId);
         const maxStock = crop ? (STOCK[crop.category] || 3) : 3;
         migrated[cropId] = { stockRemaining: entry.available ? maxStock : 0, expiresAt: entry.expiresAt };
@@ -205,7 +496,6 @@ class GameState {
       if (entry && typeof entry.stockRemaining === 'number') {
         migrated[key] = entry; // Already new format
       } else if (entry && typeof entry.available === 'boolean') {
-        // Old format: convert to stock-based
         const maxStock = STOCK[key] || (key === 'fertilizer' ? 5 : 1);
         migrated[key] = { stockRemaining: entry.available ? maxStock : 0, expiresAt: entry.expiresAt };
       }
@@ -216,7 +506,7 @@ class GameState {
   _initPlots() {
     const count = this.getPlotCount();
     while (this.plots.length < count) {
-      this.plots.push({ id: this.plots.length, status: 'empty', cropId: null, plantedAt: null, harvestAt: null, mutations: [], fertilized: false, harvestCount: 0 });
+      this.plots.push({ id: this.plots.length, status: 'empty', cropId: null, plantedAt: null, harvestAt: null, mutations: [], fertilized: false, harvestCount: 0, sprinklerBonus: 0 });
     }
   }
 
@@ -275,9 +565,8 @@ class GameState {
   }
 
   _refreshCropAvailability() {
-    const AVAILABILITY_DURATION = 5 * 60 * 1000;
     const now = Date.now();
-    const expiresAt = now + AVAILABILITY_DURATION;
+    const expiresAt = now + this._getStockDuration();
     const STOCK = { starter: 5, intermediate: 3, advanced: 1, premium: 1 };
     let changed = false;
 
@@ -316,15 +605,13 @@ class GameState {
 
     if (changed) {
       this.lastAvailabilityRefresh = now;
+      this._syncStockTimers(expiresAt);
       this.save();
     }
   }
 
   getAvailabilityTimeRemaining() {
-    const entries = Object.values(this.cropAvailability);
-    if (entries.length === 0) return 0;
-    const nextExpiry = Math.min(...entries.map(e => e.expiresAt));
-    return Math.max(0, nextExpiry - Date.now());
+    return this._getSharedStockTimeRemaining();
   }
 
   isSprinklerAvailable(tier) {
@@ -348,9 +635,8 @@ class GameState {
   }
 
   _refreshSprinklerAvailability() {
-    const SPRINKLER_DURATION = 5 * 60 * 1000;
     const now = Date.now();
-    const expiresAt = now + SPRINKLER_DURATION;
+    const expiresAt = now + this._getStockDuration();
     const STOCK = { 1: 3, 2: 2, 3: 1 };
     const FERT_STOCK = 5;
     let changed = false;
@@ -368,44 +654,50 @@ class GameState {
     }
     if (changed) {
       this.lastSprinklerRefresh = now;
+      this._syncStockTimers(expiresAt);
       this.save();
     }
   }
 
   getSprinklerAvailabilityTimeRemaining() {
-    const entries = Object.values(this.sprinklerAvailability);
-    if (entries.length === 0) return 0;
-    const nextExpiry = Math.min(...entries.map(e => e.expiresAt));
+    return this._getSharedStockTimeRemaining();
+  }
+
+  _getStockDuration() {
+    return 5 * 60 * 1000; // 5 min shared cycle
+  }
+
+  _getSharedStockTimeRemaining() {
+    const allEntries = [
+      ...Object.values(this.cropAvailability),
+      ...Object.values(this.sprinklerAvailability),
+    ];
+    if (allEntries.length === 0) return 0;
+    const nextExpiry = Math.min(...allEntries.map(e => e.expiresAt));
     return Math.max(0, nextExpiry - Date.now());
   }
 
-  getActiveSprinkler() {
-    if (!this.gear.activeSprinkler) return null;
-    if (Date.now() >= this.gear.activeSprinkler.expiresAt) {
-      this.gear.activeSprinkler = null;
-      this.save();
-      return null;
+  _syncStockTimers(expiresAt) {
+    for (const entry of Object.values(this.cropAvailability)) {
+      entry.expiresAt = expiresAt;
     }
-    return this.gear.activeSprinkler;
+    for (const entry of Object.values(this.sprinklerAvailability)) {
+      entry.expiresAt = expiresAt;
+    }
+    this.emit('restock');
   }
 
-  getActiveSprinklerTimeRemaining() {
-    const active = this.getActiveSprinkler();
-    if (!active) return 0;
-    return Math.max(0, active.expiresAt - Date.now());
-  }
-
-  useSprinkler(inventoryIndex) {
-    const item = this.gear.sprinklerInventory[inventoryIndex];
-    if (!item) return false;
-    if (this.getActiveSprinkler()) return false;
-    const sp = SPRINKLERS.find(s => s.tier === item.tier);
+  // === Sprinkler System (per-plot, stackable, no cooldown) ===
+  applySprinklerToPlot(plotIndex, tier) {
+    const plot = this.plots[plotIndex];
+    if (!plot || plot.status !== 'growing') return false;
+    const sp = SPRINKLERS.find(s => s.tier === tier);
     if (!sp) return false;
-    this.gear.sprinklerInventory.splice(inventoryIndex, 1);
-    this.gear.activeSprinkler = {
-      tier: item.tier,
-      expiresAt: Date.now() + (item.duration || sp.duration) * 1000,
-    };
+    // Find first sprinkler of this tier in inventory
+    const idx = this.gear.sprinklerInventory.findIndex(s => s.tier === tier);
+    if (idx === -1) return false;
+    this.gear.sprinklerInventory.splice(idx, 1);
+    plot.sprinklerBonus = (plot.sprinklerBonus || 0) + sp.weightBonus;
     this.save();
     return true;
   }
@@ -414,10 +706,7 @@ class GameState {
     const crop = this.getCrop(cropId);
     if (!crop) return 0;
     const researchBonus = (this.researchLevels.growth_speed || 0) * 0.02;
-    const active = this.getActiveSprinkler();
-    const sp = active ? SPRINKLERS.find(s => s.tier === active.tier) : null;
-    const bonus = sp ? sp.speedBonus : 0;
-    return Math.max(1, Math.floor(crop.growTime * (1 - bonus) * (1 - researchBonus)));
+    return Math.max(1, Math.floor(crop.growTime * (1 - researchBonus)));
   }
 
   // === Seeds ===
@@ -447,8 +736,12 @@ class GameState {
     // Weather planting restrictions
     const blockInfo = this.getWeatherPlantingBlock(cropId);
     if (blockInfo.blocked) return { success: false, reason: 'weather_blocked', message: blockInfo.message };
-    this.seeds[cropId]--;
-    if (this.seeds[cropId] <= 0) delete this.seeds[cropId];
+    // Mouse pet: chance to save seed
+    const mouseSavedSeed = this._applyMouseSeedSave(cropId);
+    if (!mouseSavedSeed) {
+      this.seeds[cropId]--;
+      if (this.seeds[cropId] <= 0) delete this.seeds[cropId];
+    }
     const now = Date.now();
     const growMs = this.getEffectiveGrowTime(cropId) * 1000;
     plot.status = 'growing';
@@ -458,11 +751,12 @@ class GameState {
     plot.mutations = [];
     plot.fertilized = false;
     plot.harvestCount = 0;
+    plot.sprinklerBonus = 0;
     // Track planting for daily objectives
     this._trackObjective('plant');
     this.stats.totalPlanted++;
     this.save();
-    return { success: true };
+    return { success: true, mouseSavedSeed };
   }
 
   // === Harvesting ===
@@ -476,22 +770,22 @@ class GameState {
     const crop = this.getCrop(plot.cropId);
     if (!crop) return null;
 
-    const active = this.getActiveSprinkler();
-    const sp = active ? SPRINKLERS.find(s => s.tier === active.tier) : null;
-    const doubleChance = sp && sp.doubleHarvestBonus ? Math.round(sp.doubleHarvestBonus * 100) : 0;
-    const isDouble = Math.random() * 100 < doubleChance;
-    const qty = isDouble ? 2 : 1;
+    const w = this._generateWeight(crop, plot.fertilized, crop.id, plot.sprinklerBonus || 0);
+    const item = { weight: w, mutations: [...(plot.mutations || [])] };
 
-    const items = [];
-    for (let i = 0; i < qty; i++) {
-      const w = this._generateWeight(crop, plot.fertilized, crop.id);
-      const item = { weight: w, mutations: [...(plot.mutations || [])] };
-      items.push(item);
-      if (!this.inventory[crop.id]) this.inventory[crop.id] = [];
-      this.inventory[crop.id].push(item);
-    }
+    if (!this.inventory[crop.id]) this.inventory[crop.id] = [];
+    this.inventory[crop.id].push(item);
 
-    this.addXP(crop.xp * qty);
+    this.addXP(crop.xp);
+
+    // Pet XP — equipped pets level up from farming
+    const petLevelUp = this.addPetXP(1);
+
+    // Squirrel bonus seeds
+    const squirrelResult = this._applySquirrelBonusSeeds(crop);
+
+    // Fox find seeds
+    const foxResult = this._applyFoxFindSeeds(crop);
 
     // Always destroy crop on harvest — player must replant
     plot.status = 'empty';
@@ -501,24 +795,25 @@ class GameState {
     plot.mutations = [];
     plot.fertilized = false;
     plot.harvestCount = 0;
+    plot.sprinklerBonus = 0;
 
     // Track harvest for stats + objectives
-    this.stats.totalHarvests += qty;
-    this.stats.totalWeightHarvested += items.reduce((s, i) => s + i.weight, 0);
-    this.stats.cropsHarvested[crop.id] = (this.stats.cropsHarvested[crop.id] || 0) + qty;
-    this._trackObjective('harvest', qty);
-    this._trackObjective('weight', items.reduce((s, i) => s + i.weight, 0));
+    this.stats.totalHarvests++;
+    this.stats.totalWeightHarvested += w;
+    this.stats.cropsHarvested[crop.id] = (this.stats.cropsHarvested[crop.id] || 0) + 1;
+    this._trackObjective('harvest');
+    this._trackObjective('weight', w);
     this._trackCropHarvested(crop.id);
-    if (items.some(i => (i.mutations || []).length > 0)) {
-      this.stats.totalMutations += qty;
-      this._trackObjective('mutated', qty);
+    if ((item.mutations || []).length > 0) {
+      this.stats.totalMutations++;
+      this._trackObjective('mutated');
     }
 
     this.save();
-    return { crop, quantity: qty, isDouble, items };
+    return { crop, quantity: 1, isDouble: false, items: [item], petLevelUp, squirrelResult, foxResult };
   }
 
-  _generateWeight(crop, fertilized, cropId) {
+  _generateWeight(crop, fertilized, cropId, sprinklerBonus = 0) {
     const range = crop.maxWeight - crop.minWeight;
     const r = (Math.random() + Math.random() + Math.random()) / 3;
     let weight = crop.minWeight + range * r;
@@ -528,6 +823,9 @@ class GameState {
     if (fertilized) {
       const fertBoost = 1 + (this.researchLevels.fertilizer_boost || 0) * 0.02;
       weight *= 1 + (0.2 + Math.random() * 0.3) * fertBoost;
+    }
+    if (sprinklerBonus > 0) {
+      weight *= 1 + sprinklerBonus;
     }
     return Math.round(weight * 100) / 100;
   }
@@ -588,7 +886,7 @@ class GameState {
     if (!this.isSprinklerAvailable(tier)) return false;
     if (this.player.peso < sp.cost) return false;
     this.player.peso -= sp.cost;
-    this.gear.sprinklerInventory.push({ tier: sp.tier, duration: sp.duration });
+    this.gear.sprinklerInventory.push({ tier: sp.tier });
     // Decrement stock
     const entry = this.sprinklerAvailability[tier];
     if (entry) entry.stockRemaining = Math.max(0, (entry.stockRemaining || 0) - 1);
@@ -608,7 +906,7 @@ class GameState {
     if (this.player.peso < cost) return false;
     this.player.peso -= cost;
     this.boughtPlots++;
-    this.plots.push({ id: this.plots.length, status: 'empty', cropId: null, plantedAt: null, harvestAt: null, mutations: [], fertilized: false, harvestCount: 0 });
+    this.plots.push({ id: this.plots.length, status: 'empty', cropId: null, plantedAt: null, harvestAt: null, mutations: [], fertilized: false, harvestCount: 0, sprinklerBonus: 0 });
     this.save();
     return true;
   }
@@ -630,11 +928,15 @@ class GameState {
   }
 
   // === Mutations ===
-  getMutationMultiplier(mutations) {
-    if (!mutations || mutations.length === 0) return 1;
-    let total = 1;
+  getMutationBonus(mutations) {
+    if (!mutations || mutations.length === 0) return 0;
+    let total = 0;
     for (const m of mutations) {
-      total *= m.isSecret ? m.bonusMultiplier : m.multiplier;
+      const bonus = m.priceBonus;
+      if (typeof bonus === 'number' && !isNaN(bonus)) {
+        total += bonus;
+      }
+      // Old format had multiplier (e.g. 1.5) instead of priceBonus — ignore gracefully
     }
     return total;
   }
@@ -646,9 +948,9 @@ class GameState {
     const geneticsMult = geneticsTier > 0 ? GENETICS_TIERS[geneticsTier - 1].priceMultiplier : 1;
     const masteryLevel = this.cropMastery[cropId] || 0;
     const masteryMult = 1 + masteryLevel * MASTERY_CONFIG.weightBonus;
-    const basePrice = Math.floor(crop.sellPrice * item.weight * this.getMutationMultiplier(item.mutations) * geneticsMult * masteryMult);
-    const minPrice = crop.seedCost * 5;
-    return Math.max(basePrice, minPrice);
+    const basePrice = Math.floor(crop.sellPrice * item.weight * geneticsMult * masteryMult);
+    const mutBonus = this.getMutationBonus(item.mutations);
+    return basePrice + mutBonus;
   }
 
   // === Selling ===
@@ -656,7 +958,10 @@ class GameState {
     const items = this.inventory[cropId];
     if (!items || !items[itemIndex]) return null;
     const item = items[itemIndex];
-    const price = this.getItemSellPrice(cropId, item);
+    let price = this.getItemSellPrice(cropId, item);
+    // Cat pet: chance to double sell price
+    const catResult = this._applyCatSellDouble(price);
+    price = catResult.price;
     items.splice(itemIndex, 1);
     if (items.length === 0) delete this.inventory[cropId];
     this.player.peso += price;
@@ -665,7 +970,7 @@ class GameState {
     this._trackObjective('sold');
     this._trackObjective('sell_amount', price);
     this.save();
-    return { amount: price, item };
+    return { amount: price, item, catDoubled: catResult.doubled };
   }
 
   sellHeaviest(cropId) {
@@ -686,6 +991,9 @@ class GameState {
     for (const item of items) {
       totalAmount += this.getItemSellPrice(cropId, item);
     }
+    // Cat pet: chance to double sell price
+    const catResult = this._applyCatSellDouble(totalAmount);
+    totalAmount = catResult.price;
     delete this.inventory[cropId];
     this.player.peso += totalAmount;
     this.stats.totalSold += count;
@@ -693,7 +1001,7 @@ class GameState {
     this._trackObjective('sold', count);
     this._trackObjective('sell_amount', totalAmount);
     this.save();
-    return { amount: totalAmount, count };
+    return { amount: totalAmount, count, catDoubled: catResult.doubled };
   }
 
   // === Weather ===
@@ -739,7 +1047,7 @@ class GameState {
             weatherId: this.currentWeather.id,
             name: this.currentWeather.mutation,
             emoji: this.currentWeather.mutationEmoji,
-            multiplier: this.currentWeather.multiplier,
+            priceBonus: this.currentWeather.priceBonus,
           });
           this._checkSecretMutations(plot, secretBonus);
         }
@@ -776,9 +1084,8 @@ class GameState {
               weatherId: secret.id,
               name: secret.name,
               emoji: secret.emoji,
-              multiplier: 1,
+              priceBonus: secret.priceBonus,
               isSecret: true,
-              bonusMultiplier: secret.bonusMultiplier,
             });
             this.stats.secretMutationsObtained++;
             this._trackObjective('secret_mutation');
@@ -821,20 +1128,12 @@ class GameState {
   }
 
   // === Farm Name ===
-  getRenameCost() {
-    return this.renameCount === 0 ? 0 : 50000;
-  }
-
   async setFarmName(name) {
-    const cost = this.getRenameCost();
-    if (cost > 0 && this.player.peso < cost) return { success: false, reason: 'cost', cost };
     const trimmed = (name || '').slice(0, 10).trim();
     if (!trimmed) return { success: false, reason: 'empty' };
-    if (cost > 0) this.player.peso -= cost;
     this.player.farmName = trimmed;
-    this.renameCount++;
     await this.save();
-    return { success: true, cost };
+    return { success: true };
   }
 
   getDisplayName() {
@@ -1261,7 +1560,7 @@ class GameState {
       case 'sprinkler':
         for (let i = 0; i < reward.amount; i++) {
           const sp = SPRINKLERS.find(s => s.tier === reward.tier);
-          if (sp) this.gear.sprinklerInventory.push({ tier: sp.tier, duration: sp.duration });
+          if (sp) this.gear.sprinklerInventory.push({ tier: sp.tier });
         }
         break;
       case 'premium_seed_pack': {
@@ -1423,7 +1722,11 @@ class GameState {
       loginRewards: this.loginRewards,
       levelRewardsClaimed: this.levelRewardsClaimed,
       favorites: this.favorites,
-      renameCount: this.renameCount,
+      petInventory: this.petInventory,
+      equippedPetUIDs: this.equippedPetUIDs,
+      petSlots: this.petSlots,
+      _nextPetUID: this._nextPetUID,
+      lastDogPesoTick: this.lastDogPesoTick,
     });
     this.notify();
   }
