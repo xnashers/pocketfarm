@@ -14,7 +14,8 @@
       "market": "Market",
       "research": "Research",
       "inventory": "Inventory",
-      "progress": "Progress"
+      "progress": "Progress",
+      "leaderboard": "Rankings"
     },
     "stats": {
       "peso": "Peso",
@@ -49,6 +50,43 @@
       "title": "Inventory",
       "empty": "Your inventory is empty"
     },
+    "auth": {
+      "title": "POCKET FARM",
+      "subtitle": "Online Farming Game",
+      "login": "Login",
+      "register": "Register",
+      "username": "Username",
+      "username_placeholder": "farmer123",
+      "password": "Password",
+      "password_placeholder": "Min 4 characters",
+      "login_btn": "🌾 Login",
+      "register_btn": "🌱 Create Account",
+      "connecting": "Connecting...",
+      "verifying": "Verifying session...",
+      "error_length": "Username min 3 chars, password min 4 chars",
+      "welcome": "Welcome, {username}! 🌱",
+      "cloud_note": "Your farm saves automatically online",
+      "expired_title": "Session Expired",
+      "expired_msg": "Your session has expired. Please login again to continue."
+    },
+    "profile": {
+      "account": "Account",
+      "save": "Save",
+      "cloud_synced": "🟢 Online",
+      "logout": "Logout",
+      "close": "Close"
+    },
+    "leaderboard": {
+      "title": "🏆 Leaderboard",
+      "subtitle": "Top farmers ranked by progress",
+      "loading": "Loading rankings...",
+      "error": "Failed to load leaderboard",
+      "offline": "Leaderboard unavailable",
+      "empty": "No farmers yet. Be the first!",
+      "retry": "Try Again",
+      "your_rank": "Your Rank",
+      "login_required": "Login to see your rank and compete with other farmers!"
+    },
     "toast": {
       "planted": "Planted {crop}!",
       "harvested": "Harvested {crop}! +{xp} XP",
@@ -59,7 +97,9 @@
       "plot_bought": "🔓 New plot unlocked!",
       "harvested_crop": "Harvested {crop}!",
       "weather_blocked": "🚫 Can't plant this crop in current weather!",
-      "not_enough_peso": "Not enough Peso!"
+      "not_enough_peso": "Not enough Peso!",
+      "cloud_saved": "🟢 Saved",
+      "cloud_error": "Save failed — retrying"
     }
   }
 }

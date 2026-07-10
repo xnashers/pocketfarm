@@ -1,9 +1,5 @@
 import { gameState } from '../state.js';
-import { renderResearchLab } from './research-lab-view.js';
-import { renderMutationLab } from './mutation-lab-view.js';
-import { renderWeatherCenter } from './weather-center-view.js';
-import { renderGenetics } from './genetics-view.js';
-import { renderMastery } from './mastery-view.js';
+import { renderResearchLab, renderMutationLab, renderWeatherCenter, renderGenetics, renderMastery } from './research-panels.js';
 
 const SUB_TABS = [
   { id: 'lab', label: '🔬 Lab', render: renderResearchLab },

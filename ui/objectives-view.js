@@ -1,10 +1,6 @@
 import { gameState } from '../state.js';
-import { showToast } from './toast.js';
-import { playSound } from './sounds.js';
-import { ACHIEVEMENTS, ACHIEVEMENT_CATEGORIES, TITLE_DISPLAY } from '../data/achievements.js';
-import { TOKEN_SHOP_ITEMS } from '../data/token-shop.js';
-import { LEVELS, getLevelReward, LEVEL_MILESTONES } from '../data/levels.js';
-import { CROPS } from '../data/crops.js';
+import { showToast, playSound } from './audio-ui.js';
+import { ACHIEVEMENTS, ACHIEVEMENT_CATEGORIES, TITLE_DISPLAY, TOKEN_SHOP_ITEMS, LEVELS, getLevelReward, LEVEL_MILESTONES, CROPS } from '../data/game-data.js';
 
 const t = (key, values) => window.miniappI18n?.t(key, values) ?? key;
 

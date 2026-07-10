@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API Test</title>
+  <style>
+    body { font-family: monospace; background: #0f172a; color: #e2e8f0; padding: 20px; }
+    .ok { color: #4ade80; } .err { color: #f87171; } .info { color: #60a5fa; }
+    pre { white-space: pre-wrap; word-break: break-all; }
+    button { padding: 10px 20px; margin: 5px; cursor: pointer; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: #1e293b; color: white; }
+    button:hover { background: #334155; }
+  </style>
+</head>
+<body>
+  <h2>🔧 API Connection Test</h2>
+  <p>Base URL: <code id="base-url"></code></p>
+  <button onclick="testPing()">1. Test Ping (GET /)</button>
+  <button onclick="testRegister()">2. Test Register</button>
+  <button onclick="testLogin()">3. Test Login</button>
+  <button onclick="clearLog()">Clear</button>
+  <hr>
+  <pre id="log"></pre>
+
+  <script>
+    const API = 'https://vercel-api-delta-puce.vercel.app';
+    document.getElementById('base-url').textContent = API;
+    const log = document.getElementById('log');
+
+    function write(msg, cls = '') {
+      const d = document.createElement('div');
+      d.className = cls;
+      d.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      log.prepend(d);
+    }
+
+    async function testPing() {
+      write('Testing GET ' + API + ' ...', 'info');
+      try {
+        const r = await fetch(API, { method: 'GET' });
+        write(`Response: ${r.status} ${r.statusText}`, r.ok ? 'ok' : 'err');
+        const text = await r.text();
+        write(`Body: ${text.substring(0, 500)}`);
+      } catch (e) {
+        write(`FAILED: ${e.message}`, 'err');
+        write(`Error name: ${e.name}`, 'err');
+        write('This means the server is unreachable or blocking the request.', 'err');
+      }
+    }
+
+    async function testRegister() {
+      const testUser = 'test_' + Math.random().toString(36).slice(2, 8);
+      write(`Testing POST /api/auth/register with user "${testUser}"...`, 'info');
+      try {
+        const r = await fetch(API + '/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: testUser, password: 'test1234' })
+        });
+        write(`Response: ${r.status} ${r.statusText}`, r.ok ? 'ok' : 'err');
+        const body = await r.json();
+        write(`Body: ${JSON.stringify(body, null, 2)}`);
+      } catch (e) {
+        write(`FAILED: ${e.message}`, 'err');
+        write(`Error name: ${e.name}`, 'err');
+        if (e instanceof TypeError) write('TypeError usually means CORS block or network failure.', 'err');
+      }
+    }
+
+    async function testLogin() {
+      write('Testing POST /api/auth/login with bad creds...', 'info');
+      try {
+        const r = await fetch(API + '/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: 'nonexistent', password: 'wrong' })
+        });
+        write(`Response: ${r.status} ${r.statusText}`, r.ok ? 'ok' : 'err');
+        const body = await r.json();
+        write(`Body: ${JSON.stringify(body, null, 2)}`);
+      } catch (e) {
+        write(`FAILED: ${e.message}`, 'err');
+        write(`Error name: ${e.name}`, 'err');
+      }
+    }
+
+    function clearLog() { log.innerHTML = ''; }
+  </script>
+</body>
+</html>

@@ -1,8 +1,7 @@
 import { gameState } from '../state.js';
-import { SPRINKLERS } from '../data/gear.js';
-import { createWeatherDisplay } from './weather-display.js';
-import { showToast } from './toast.js';
-import { playSound } from './sounds.js';
+import { SPRINKLERS } from '../data/game-data.js';
+import { createWeatherDisplay } from './research-panels.js';
+import { showToast, playSound } from './audio-ui.js';
 import { spawnHarvestAnimation } from './harvest-anim.js';
 
 const t = (key, values) => window.miniappI18n?.t(key, values) ?? key;

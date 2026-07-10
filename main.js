@@ -1,37 +1,62 @@
 import { gameState } from './state.js';
-import { createStatsBar } from './ui/stats-bar.js';
-import { createTabs } from './ui/tabs.js';
+import { getSaveData } from './storage.js';
+import { startAutoSave, stopAutoSave, triggerCloudSave } from './api-client.js';
+import { createStatsBar, createTabs } from './ui/layout.js';
 import { createFarmView } from './ui/farm-view.js';
 import { createShopView } from './ui/shop-view.js';
 import { createMarketView } from './ui/market-view.js';
 import { createInventoryView } from './ui/inventory-view.js';
 import { createResearchView } from './ui/research-view.js';
 import { createObjectivesView } from './ui/objectives-view.js';
-import { createWelcomeScreen } from './ui/welcome-screen.js';
-import { createSplashScreen } from './ui/splash-screen.js';
-import { showLoginRewardPopup } from './ui/login-reward-popup.js';
-import { initToast, showToast } from './ui/toast.js';
-import { playSound } from './ui/sounds.js';
-import { createMusicButton } from './ui/music.js';
-import { createTutorialOverlay } from './ui/tutorial-view.js';
-import { createUpdateNotesOverlay, hasSeenUpdateNotes, markUpdateNotesSeen } from './ui/update-notes.js';
+import { createLeaderboardView } from './ui/leaderboard-view.js';
+import { createAuthView, showAuthExpiredPopup } from './ui/auth-view.js';
+import { createWelcomeScreen, createSplashScreen, showLoginRewardPopup, createTutorialOverlay, createUpdateNotesOverlay, hasSeenUpdateNotes, markUpdateNotesSeen } from './ui/overlays.js';
+import { initToast, showToast, playSound, createMusicButton } from './ui/audio-ui.js';
 
 const t = (key, values) => window.miniappI18n?.t(key, values) ?? key;
 
 async function init() {
-  await gameState.init();
+  initToast();
 
   const app = document.getElementById('app');
   if (!app) return;
 
-  initToast();
+  // Auth flow — show login screen first
+  let authContainer = null;
+  const { element: authEl } = createAuthView(async (username) => {
+    // Remove auth screen
+    if (authContainer && authContainer.parentNode) authContainer.remove();
+    showToast(t('app.auth.welcome', { username }), 'success');
+    // Proceed to game
+    await startApp();
+  });
+  authContainer = authEl;
+  app.appendChild(authEl);
+}
 
+async function startApp() {
+  // Show splash FIRST — before any game init
   createSplashScreen(async () => {
-    // Check if player has seen the update notes
+    // Initialize game state after splash finishes
+    await gameState.init();
+
+    const app = document.getElementById('app');
+    if (!app) return;
+
+    // Start auto-save (always authenticated in online-only mode)
+    startAutoSave(getSaveData);
+
+    // Listen for auth expiration
+    window.addEventListener('pf-auth-expired', () => {
+      stopAutoSave();
+      showAuthExpiredPopup(() => {
+        window.location.reload();
+      });
+    });
+
     const seen = await hasSeenUpdateNotes();
 
     if (!seen) {
-      // Show update notes overlay for all players (new & returning)
       const updateNotes = createUpdateNotesOverlay(async () => {
         await markUpdateNotesSeen();
         proceedAfterSplash(app);
@@ -44,11 +69,17 @@ async function init() {
 }
 
 function proceedAfterSplash(app) {
-  if (gameState.isNewPlayer) {
-    const welcome = createWelcomeScreen((name) => {
-      gameState.setFarmName(name);
+  if (gameState.isNewPlayer || !gameState.player.farmName) {
+    const welcome = createWelcomeScreen(async (name) => {
+      const result = await gameState.setFarmName(name);
+      if (!result.success) {
+        showToast(t('app.toast.not_enough_peso'), 'error');
+        return;
+      }
       gameState.isNewPlayer = false;
       showToast(t('app.toast.farm_named', { name: gameState.getDisplayName() }), 'success');
+      // Cloud save after naming
+      await triggerCloudSave(getSaveData);
       // Show tutorial for new players
       const tutorial = createTutorialOverlay(() => {
         startGame(app);
@@ -86,6 +117,8 @@ function startGame(app) {
     for (const ach of newAchs) {
       setTimeout(() => showToast(`🏆 ${ach.name} unlocked!`, 'gold'), 500);
     }
+    // Cloud save on level up
+    triggerCloudSave(getSaveData);
   });
 
   gameState.on('weatherChange', (weather) => {
@@ -112,6 +145,7 @@ function startGame(app) {
     research: createResearchView(),
     inventory: createInventoryView(),
     objectives: createObjectivesView(),
+    leaderboard: createLeaderboardView(),
   };
 
   let currentView = 'farm';

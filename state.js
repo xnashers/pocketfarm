@@ -1,12 +1,5 @@
-import { CROPS } from './data/crops.js';
-import { LEVELS, getLevelReward } from './data/levels.js';
-import { SPRINKLERS } from './data/gear.js';
-import { WEATHER_TYPES, SECRET_MUTATIONS, WEATHER_CHANGE_INTERVAL, MUTATION_CHANCE } from './data/weather.js';
+import { CROPS, LEVELS, getLevelReward, SPRINKLERS, WEATHER_TYPES, SECRET_MUTATIONS, WEATHER_CHANGE_INTERVAL, MUTATION_CHANCE, RESEARCH_LAB, MUTATION_LAB, WEATHER_CENTER, GENETICS_TIERS, MASTERY_CONFIG, getResearchCost, getMutationLabCost, getGeneticsCost, getMasteryCost, generateDailyObjectives, CHEST_REWARDS, CRATE_REWARDS, rollReward, ACHIEVEMENTS, LOGIN_CYCLE, MONTHLY_MILESTONES } from './data/game-data.js';
 import { loadGame, saveGame } from './storage.js';
-import { RESEARCH_LAB, MUTATION_LAB, WEATHER_CENTER, GENETICS_TIERS, MASTERY_CONFIG, getResearchCost, getMutationLabCost, getGeneticsCost, getMasteryCost } from './data/research.js';
-import { generateDailyObjectives, CHEST_REWARDS, CRATE_REWARDS, rollReward } from './data/objectives.js';
-import { ACHIEVEMENTS } from './data/achievements.js';
-import { LOGIN_CYCLE, MONTHLY_MILESTONES } from './data/login-rewards.js';
 
 class GameState {
   constructor() {
@@ -59,6 +52,7 @@ class GameState {
     this.pendingLoginReward = null;
     this.levelRewardsClaimed = {};
     this.favorites = [];
+    this.renameCount = 0;
   }
 
   async init() {
@@ -146,6 +140,7 @@ class GameState {
       this.loginRewards = saved.loginRewards || { lastLoginDate: '', streak: 0, totalLoginDays: 0, monthlyClaimed: {} };
       this.levelRewardsClaimed = saved.levelRewardsClaimed || {};
       this.favorites = saved.favorites || [];
+      this.renameCount = saved.renameCount || 0;
     } else {
       this.isNewPlayer = true;
       this._giveStarterSeeds();
@@ -826,9 +821,20 @@ class GameState {
   }
 
   // === Farm Name ===
-  setFarmName(name) {
-    this.player.farmName = (name || '').slice(0, 10).trim();
-    this.save();
+  getRenameCost() {
+    return this.renameCount === 0 ? 0 : 50000;
+  }
+
+  async setFarmName(name) {
+    const cost = this.getRenameCost();
+    if (cost > 0 && this.player.peso < cost) return { success: false, reason: 'cost', cost };
+    const trimmed = (name || '').slice(0, 10).trim();
+    if (!trimmed) return { success: false, reason: 'empty' };
+    if (cost > 0) this.player.peso -= cost;
+    this.player.farmName = trimmed;
+    this.renameCount++;
+    await this.save();
+    return { success: true, cost };
   }
 
   getDisplayName() {
@@ -1417,6 +1423,7 @@ class GameState {
       loginRewards: this.loginRewards,
       levelRewardsClaimed: this.levelRewardsClaimed,
       favorites: this.favorites,
+      renameCount: this.renameCount,
     });
     this.notify();
   }

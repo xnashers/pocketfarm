@@ -1,8 +1,6 @@
 import { gameState } from '../state.js';
-import { CROPS, CROP_CATEGORIES } from '../data/crops.js';
-import { GEAR_ITEMS, SPRINKLERS } from '../data/gear.js';
-import { showToast } from './toast.js';
-import { playSound } from './sounds.js';
+import { CROPS, CROP_CATEGORIES, GEAR_ITEMS, SPRINKLERS } from '../data/game-data.js';
+import { showToast, playSound } from './audio-ui.js';
 
 const t = (key, values) => window.miniappI18n?.t(key, values) ?? key;
 

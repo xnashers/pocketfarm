@@ -1,7 +1,6 @@
 import { gameState } from '../state.js';
-import { SPRINKLERS } from '../data/gear.js';
-import { showToast } from './toast.js';
-import { playSound } from './sounds.js';
+import { SPRINKLERS } from '../data/game-data.js';
+import { showToast, playSound } from './audio-ui.js';
 
 const t = (key) => window.miniappI18n?.t(key) ?? key;
 
